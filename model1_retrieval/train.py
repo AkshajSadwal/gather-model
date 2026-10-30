@@ -162,6 +162,8 @@ def main() -> int:
     parser.add_argument("--early-stopping-patience", type=int, default=4)
     parser.add_argument("--min-delta", type=float, default=0.0001)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--eval-seed", type=int, default=314159,
+                        help="Fixed seed for validation/test query and negative sampling; keep constant across training-seed repeats")
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--evaluate-test", action="store_true", help="Evaluate sampled retrieval metrics on the held-out test split after training; keep off while tuning")
@@ -170,8 +172,8 @@ def main() -> int:
     if min(args.epochs, args.batch_size, args.negatives_per_positive, args.eval_queries,
            args.eval_negatives, args.eval_query_chunk_size) < 1:
         parser.error("epochs, batch size, negatives, and evaluation sizes must be positive")
-    if args.seed < 0 or args.cpu_threads < 0 or args.temperature <= 0:
-        parser.error("seed/CPU threads must be nonnegative and temperature must be positive")
+    if args.seed < 0 or args.eval_seed < 0 or args.cpu_threads < 0 or args.temperature <= 0:
+        parser.error("training/evaluation seeds and CPU threads must be nonnegative; temperature must be positive")
     if args.max_positive_rows < 0:
         parser.error("--max-positive-rows cannot be negative")
     if not 0 <= args.hard_negative_sample_rate <= 1:
@@ -221,7 +223,7 @@ def main() -> int:
 
     eval_rows, eval_candidates = build_validation_queries(
         validation, metadata, catalog, train_positive_keys,
-        seed=args.seed + 9001, query_count=args.eval_queries, negative_count=args.eval_negatives,
+        seed=args.eval_seed, query_count=args.eval_queries, negative_count=args.eval_negatives,
     )
     print(f"Sampled validation: {len(eval_rows):,} queries × {eval_candidates.shape[1]:,} candidates")
 
@@ -268,6 +270,7 @@ def main() -> int:
             "eval_queries": args.eval_queries,
             "eval_negatives": args.eval_negatives,
             "eval_query_chunk_size": args.eval_query_chunk_size,
+            "eval_seed": args.eval_seed,
             "early_stopping_patience": args.early_stopping_patience,
             "min_delta": args.min_delta,
             "cpu_threads": args.cpu_threads,
@@ -302,7 +305,8 @@ def main() -> int:
         "positive_event_weights": {"is_click": 0.25, "is_like": 1.0, "is_follow": 1.5, "is_comment": 1.25, "is_forward": 1.5, "long_view": 2.0, "is_profile_enter": 0.75, "complete_view": 2.0},
         "short_view_negative_weight": 0.5,
         "negative_sampling": "two random catalogue items per positive by default; known training positives are rejected; explicit is_hate and short_view pairs can be sampled as hard negatives; unobserved items are not confirmed dislikes",
-        "validation_protocol": f"sampled retrieval: up to {args.eval_queries} positive queries, each ranked against {args.eval_negatives} sampled catalogue negatives; not full-catalogue recall",
+        "eval_seed": args.eval_seed,
+        "validation_protocol": f"sampled retrieval: up to {args.eval_queries} positive queries, each ranked against {args.eval_negatives} sampled catalogue negatives using fixed eval_seed={args.eval_seed}; not full-catalogue recall",
     }
     write_json(run_metadata, out / "run_metadata.json")
 
@@ -406,6 +410,7 @@ def main() -> int:
                     "eval_queries": args.eval_queries,
                     "eval_negatives": args.eval_negatives,
                     "eval_query_chunk_size": args.eval_query_chunk_size,
+                    "eval_seed": args.eval_seed,
                     "early_stopping_patience": args.early_stopping_patience,
                     "min_delta": args.min_delta,
                 },
@@ -438,7 +443,7 @@ def main() -> int:
         ]))
         test_rows, test_candidates = build_validation_queries(
             test, metadata, catalog, all_train_validation_keys,
-            seed=args.seed + 19001, query_count=args.eval_queries, negative_count=args.eval_negatives,
+            seed=args.eval_seed + 19001, query_count=args.eval_queries, negative_count=args.eval_negatives,
         )
         test_metrics = evaluate_sampled_recall(model, test, test_rows, test_candidates,
                                                catalog, device, args.eval_query_chunk_size)

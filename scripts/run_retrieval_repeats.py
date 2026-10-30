@@ -63,6 +63,8 @@ def main() -> int:
     parser.add_argument("--output-root", default="artifacts/retrieval/repeated_runs")
     parser.add_argument("--run-group", default=None, help="Defaults to a timestamped group name")
     parser.add_argument("--seeds", nargs="+", type=int, default=[17, 42, 2026])
+    parser.add_argument("--eval-seed", type=int, default=314159,
+                        help="Fixed evaluation-sample seed shared by all training-seed repeats")
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--negatives-per-positive", type=int, default=2)
@@ -75,6 +77,8 @@ def main() -> int:
     args = parser.parse_args()
     if not args.seeds or any(seed < 0 for seed in args.seeds) or len(set(args.seeds)) != len(args.seeds):
         parser.error("--seeds must contain unique nonnegative integers")
+    if args.eval_seed < 0:
+        parser.error("--eval-seed must be nonnegative")
     if min(args.batch_size, args.epochs, args.negatives_per_positive, args.eval_queries, args.eval_negatives) < 1:
         parser.error("batch size, epochs, negatives, and evaluation sizes must be positive")
 
@@ -88,6 +92,7 @@ def main() -> int:
     data_dir = Path(args.data_dir)
     group_config = {
         "run_group": group, "started_at_utc": datetime.now(timezone.utc).isoformat(),
+        "eval_seed": args.eval_seed,
         "data_dir": str(data_dir), "prepared_data_fingerprint": prepared_data_fingerprint(data_dir), "seeds": args.seeds,
         "batch_size": args.batch_size, "epochs": args.epochs,
         "negatives_per_positive": args.negatives_per_positive,
@@ -119,6 +124,7 @@ def main() -> int:
             "--early-stopping-patience", str(args.early_stopping_patience),
             "--cpu-threads", str(args.cpu_threads),
             "--seed", str(seed),
+            "--eval-seed", str(args.eval_seed),
         ]
         if args.max_positive_rows:
             command += ["--max-positive-rows", str(args.max_positive_rows)]

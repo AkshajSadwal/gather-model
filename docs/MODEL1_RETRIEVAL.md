@@ -35,9 +35,9 @@ The agreed training batch size is 4,096 positive interaction rows. With two nega
 
 ## Evaluation
 
-Validation samples up to 512 positive interactions; each positive is ranked against 500 sampled catalogue negatives by default. The trainer reports sampled Recall@20, sampled Recall@100, MRR and median sampled rank. These values are conditional on the sampled candidate protocol and are **not full-catalogue recall**. The same seed creates the same validation query/negative sample within the same prepared data.
+Validation samples up to 512 positive interactions; each positive is ranked against 500 sampled catalogue negatives by default. The trainer reports sampled Recall@20, sampled Recall@100, MRR and median sampled rank. These values are conditional on the sampled candidate protocol and are **not full-catalogue recall**. All training-seed repeats use one fixed evaluation seed (default `314159`), so they are compared on the exact same validation queries and sampled negatives. The held-out sampled test candidate set uses a separate fixed seed derived from the evaluation seed.
 
-Three sequential seeds (17, 42, 2026) are the default repeatability check. This is an initial stability check, not a statistical guarantee. MPS operations may not be bitwise deterministic.
+Three sequential training seeds (17, 42, 2026) are the default repeatability check; all share `--eval-seed 314159`. This is an initial stability check, not a statistical guarantee. MPS operations may not be bitwise deterministic.
 
 ## Index and query path
 

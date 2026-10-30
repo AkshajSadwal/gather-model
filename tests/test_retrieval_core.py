@@ -6,7 +6,9 @@ import unittest
 import numpy as np
 import torch
 
-from model1_retrieval.data import PreparedSplit, positive_rows, sample_negative_video_indices
+from model1_retrieval.data import (
+    PreparedSplit, VideoCatalog, build_validation_queries, positive_rows, sample_negative_video_indices,
+)
 from model1_retrieval.model import TwoTowerRetrieval
 
 
@@ -60,6 +62,30 @@ class RetrievalCoreTests(unittest.TestCase):
         np.testing.assert_array_equal(rows, np.asarray([0, 3, 5]))
         self.assertEqual(weights.shape, (3,))
         self.assertGreater(float(weights[1]), float(weights[0]))
+
+
+    def test_validation_sample_is_reproducible_for_a_fixed_eval_seed(self) -> None:
+        categorical = np.zeros((6, 36), dtype=np.int32)
+        categorical[:, 0] = [1, 1, 2, 2, 1, 2]
+        categorical[:, 1] = [1, 2, 3, 4, 5, 6]
+        labels = np.zeros((6, 10), dtype=np.float32)
+        labels[:, 8] = 1.0  # complete_view makes each row a positive query
+        split = PreparedSplit(categorical, np.zeros((6, 10), dtype=np.float32), labels)
+        catalog = VideoCatalog(
+            categorical=np.zeros((21, 8), dtype=np.int32),
+            numeric=np.zeros((21, 3), dtype=np.float32),
+            raw_ids=np.arange(100, 120, dtype=np.int64),
+        )
+        metadata = {"binary_targets": TARGETS}
+        no_train_positives = np.asarray([], dtype=np.int64)
+        rows_a, candidates_a = build_validation_queries(
+            split, metadata, catalog, no_train_positives, seed=314159, query_count=4, negative_count=5
+        )
+        rows_b, candidates_b = build_validation_queries(
+            split, metadata, catalog, no_train_positives, seed=314159, query_count=4, negative_count=5
+        )
+        np.testing.assert_array_equal(rows_a, rows_b)
+        np.testing.assert_array_equal(candidates_a, candidates_b)
 
     def test_negative_sampler_rejects_known_positive_pairs_and_uses_hate_pair(self) -> None:
         users = np.asarray([1, 2], dtype=np.int64)

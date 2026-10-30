@@ -337,6 +337,7 @@ python -u -m scripts.run_retrieval_repeats \
   --output-root artifacts/retrieval/repeated_runs \
   --batch-size 4096 \
   --seeds 17 42 2026 \
+  --eval-seed 314159 \
   --epochs 20 \
   --negatives-per-positive 2 \
   --eval-queries 512 \
@@ -345,7 +346,7 @@ python -u -m scripts.run_retrieval_repeats \
   --cpu-threads 4
 ```
 
-Each seed receives its own checkpoint folder and log. The runner writes `trial_results.csv` and `repeat_summary.csv`. Compare mean and standard deviation of sampled Recall@100, sampled Recall@20, MRR and runtime. This is a three-seed stability check at batch 4,096, not a batch-size comparison. Do not run the retrieval and ranking repeat runners simultaneously on the 16 GB Mac.
+Each seed receives its own checkpoint folder and log. The runner uses one fixed evaluation seed (`314159`) so all training seeds share identical validation queries and sampled negatives. It writes `trial_results.csv` and `repeat_summary.csv`. Compare mean and standard deviation of sampled Recall@100, sampled Recall@20, MRR and runtime. This is a three-seed stability check at batch 4,096, not a batch-size comparison. Do not run the retrieval and ranking repeat runners simultaneously on the 16 GB Mac.
 
 The trainer selects the best checkpoint using **sampled Recall@100** on a fixed validation query/candidate sample. It reports sampled Recall@20, Recall@100, MRR, and median sampled rank. These are not full-catalogue recall values. Tuning should use validation only; `--evaluate-test` runs a sampled test evaluation after training and should be reserved for final evaluation.
 
