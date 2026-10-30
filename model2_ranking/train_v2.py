@@ -12,7 +12,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
+import random
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +26,19 @@ from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
 from model2_ranking.model_v2 import ReelsRankerV2
+
+
+def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and PyTorch generators for repeatable experiments.
+
+    MPS kernels are not guaranteed to be bitwise deterministic, so a fixed seed
+    improves comparability but does not promise identical results on every run.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 class SplitArrays:
@@ -154,6 +170,8 @@ def main() -> None:
     parser.add_argument("--skip-test-eval", action="store_true", help="Do not evaluate the held-out test split during experiments; use validation metrics for tuning")
     parser.add_argument("--embedding-dim", type=int, default=None, help="Defaults to 32, or uses the saved value when resuming")
     parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for Python, NumPy, and PyTorch")
+    parser.add_argument("--run-name", default=None, help="Optional human-readable experiment name saved in metadata/checkpoints")
     parser.add_argument("--max-train-rows", type=int, default=0)
     parser.add_argument("--resume", action="store_true", help="Resume latest checkpoint, or initialize from best_model.pt if needed")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Limit PyTorch CPU threads to reduce contention; 0 keeps PyTorch's default")
@@ -169,6 +187,13 @@ def main() -> None:
         parser.error("CPU threads, cooldown interval, and cooldown seconds cannot be negative")
     if args.early_stopping_patience < 0 or args.min_delta < 0:
         parser.error("Early-stopping patience and min-delta cannot be negative")
+    if args.seed < 0:
+        parser.error("--seed must be nonnegative")
+
+    # Apply the seed before model initialization and the first shuffled epoch.
+    seed_everything(args.seed)
+    run_started_at = datetime.now(timezone.utc).isoformat()
+    run_started_perf = time.perf_counter()
 
     if args.cpu_threads > 0:
         torch.set_num_threads(args.cpu_threads)
@@ -180,6 +205,14 @@ def main() -> None:
 
     data_dir = Path(args.data_dir)
     out = Path(args.output_dir)
+    protected_outputs = ("best_model.pt", "latest_checkpoint.pt", "training_history.json", "test_metrics.json", "run_metadata.json")
+    if not args.resume and out.exists():
+        existing = [name for name in protected_outputs if (out / name).exists()]
+        if existing:
+            raise FileExistsError(
+                f"Output directory {out} already contains {existing}. "
+                "Choose a new --output-dir for a fresh experiment, or use --resume to continue it."
+            )
     out.mkdir(parents=True, exist_ok=True)
     metadata = json.loads((data_dir / "metadata.json").read_text(encoding="utf-8"))
     if torch.cuda.is_available():
@@ -199,6 +232,8 @@ def main() -> None:
     else:
         print("Accelerator: CPU (CUDA/MPS unavailable)")
     print(f"PyTorch CPU threads: {torch.get_num_threads()}")
+    print(f"Experiment seed: {args.seed}")
+    print(f"Run name: {args.run_name or out.name}")
     print(f"Training batch size: {args.batch_size}; evaluation batch size: {args.eval_batch_size}")
     if args.skip_test_eval:
         print("Held-out test evaluation: SKIPPED (validation only; recommended while tuning)")
@@ -220,6 +255,39 @@ def main() -> None:
             setattr(train, attr, getattr(train, attr)[:k].contiguous())
         train.n = k
         print(f"Quick-test mode: using {k:,} training rows")
+
+    run_metadata = {
+        "status": "running",
+        "run_name": args.run_name or out.name,
+        "started_at_utc": run_started_at,
+        "seed": args.seed,
+        "config": {
+            "data_dir": str(data_dir),
+            "output_dir": str(out),
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "eval_batch_size": args.eval_batch_size,
+            "embedding_dim_requested": args.embedding_dim,
+            "learning_rate": args.learning_rate,
+            "max_train_rows": args.max_train_rows,
+            "cpu_threads": args.cpu_threads,
+            "cooldown_every_batches": args.cooldown_every_batches,
+            "cooldown_seconds": args.cooldown_seconds,
+            "early_stopping_patience": args.early_stopping_patience,
+            "min_delta": args.min_delta,
+            "skip_test_eval": args.skip_test_eval,
+        },
+        "dataset": metadata.get("dataset"),
+        "rows": {"train": train.n, "validation": val.n, "test": test.n},
+        "runtime": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "pytorch": torch.__version__,
+            "numpy": np.__version__,
+            "device": str(device),
+        },
+    }
+    atomic_write_json(run_metadata, out / "run_metadata.json")
 
     best_path = out / "best_model.pt"
     latest_path = out / "latest_checkpoint.pt"
@@ -245,6 +313,15 @@ def main() -> None:
             "Use the saved dimension when resuming."
         )
     embedding_dim = args.embedding_dim or saved_embedding_dim or 32
+    run_metadata["model"] = {
+        "architecture": "512-256-128",
+        "embedding_dim": embedding_dim,
+        "categorical_fields": len(metadata["categorical_sizes"]),
+        "numeric_fields": len(metadata["numeric_features"]),
+        "binary_targets": metadata["binary_targets"],
+        "watch_time_head": True,
+    }
+    atomic_write_json(run_metadata, out / "run_metadata.json")
 
     model = ReelsRankerV2(
         metadata["categorical_sizes"],
@@ -263,6 +340,14 @@ def main() -> None:
     start_epoch = 1
 
     if resume_checkpoint is not None:
+        saved_seed = resume_checkpoint.get("seed")
+        if saved_seed is not None and int(saved_seed) != args.seed:
+            raise ValueError(
+                f"Checkpoint was created with seed={saved_seed}, but --seed={args.seed}. "
+                "Use the original seed when resuming this experiment."
+            )
+        if saved_seed is None:
+            print("WARNING: checkpoint has no recorded seed; exact reproducibility cannot be verified.")
         if resume_checkpoint.get("categorical_sizes") != metadata["categorical_sizes"]:
             raise ValueError("Checkpoint categorical feature sizes do not match the selected dataset metadata.")
         if resume_checkpoint.get("num_numeric_features") != len(metadata["numeric_features"]):
@@ -318,6 +403,8 @@ def main() -> None:
             "history": checkpoint_history,
             "dataset": metadata["dataset"],
             "model_version": 2,
+            "seed": args.seed,
+            "run_name": args.run_name or out.name,
             "checkpoint_kind": "latest",
             "interrupted_during_epoch": interrupted_during,
             **rng_snapshot(device),
@@ -328,6 +415,7 @@ def main() -> None:
         print(f"Checkpoint is already at epoch {start_epoch - 1}, which meets the requested maximum ({args.epochs}).")
     else:
         for epoch in range(start_epoch, args.epochs + 1):
+            epoch_started = time.perf_counter()
             model.train()
             total = 0.0
             rows_seen = 0
@@ -382,7 +470,14 @@ def main() -> None:
                     if key != "mean_auc" and np.isfinite(value)
                 )
             )
-            history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss, "val_metrics": metrics})
+            epoch_seconds = time.perf_counter() - epoch_started
+            history.append({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_metrics": metrics,
+                "epoch_seconds": epoch_seconds,
+            })
             score = metrics["mean_auc"] if np.isfinite(metrics["mean_auc"]) else -val_loss
             if score > best_score + args.min_delta:
                 best_score = score
@@ -396,9 +491,12 @@ def main() -> None:
                     "embedding_dim": embedding_dim,
                     "best_epoch": epoch,
                     "validation_score": score,
+                    "validation_loss": val_loss,
                     "validation_metrics": metrics,
                     "dataset": metadata["dataset"],
                     "model_version": 2,
+                    "seed": args.seed,
+                    "run_name": args.run_name or out.name,
                 }
                 atomic_torch_save(best_payload, best_path)
                 print(f"  Saved best checkpoint: {best_path}")
@@ -436,6 +534,19 @@ def main() -> None:
         print(f"  test_loss={test_loss:.4f}")
         for key, value in test_metrics.items():
             print(f"  {key}: {value:.4f}" if np.isfinite(value) else f"  {key}: unavailable")
+    final_checkpoint = torch.load(best_path, map_location="cpu", weights_only=False)
+    run_metadata.update({
+        "status": "completed",
+        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "elapsed_seconds": time.perf_counter() - run_started_perf,
+        "epochs_recorded": len(history),
+        "best_epoch": int(final_checkpoint.get("best_epoch", 0)),
+        "best_validation_score": float(final_checkpoint.get("validation_score", float("nan"))),
+        "best_validation_loss": float(final_checkpoint.get("validation_loss", float("nan"))),
+        "best_validation_metrics": final_checkpoint.get("validation_metrics", {}),
+        "test_evaluation": "skipped" if args.skip_test_eval else "completed",
+    })
+    atomic_write_json(run_metadata, out / "run_metadata.json")
     print(f"\nBest model saved at: {best_path.resolve()}")
 
 
