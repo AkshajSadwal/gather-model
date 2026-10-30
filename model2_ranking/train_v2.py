@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
-from model_v2 import ReelsRankerV2
+from model2_ranking.model_v2 import ReelsRankerV2
 
 
 class SplitArrays:
@@ -123,12 +123,35 @@ def restore_rng(checkpoint: dict[str, Any], device: torch.device) -> None:
         torch.mps.set_rng_state(checkpoint["mps_rng_state"].cpu())
 
 
+
+def report_mps_memory(device: torch.device, label: str) -> None:
+    """Report MPS allocator/driver memory when the backend exposes these APIs."""
+    if device.type != "mps" or not hasattr(torch, "mps"):
+        return
+    try:
+        torch.mps.synchronize()
+        gib = 1024 ** 3
+        current = torch.mps.current_allocated_memory() / gib
+        driver_fn = getattr(torch.mps, "driver_allocated_memory", None)
+        recommended_fn = getattr(torch.mps, "recommended_max_memory", None)
+        extra = []
+        if callable(driver_fn):
+            extra.append(f"driver={driver_fn()/gib:.2f} GiB")
+        if callable(recommended_fn):
+            extra.append(f"recommended_limit={recommended_fn()/gib:.2f} GiB")
+        suffix = (", " + ", ".join(extra)) if extra else ""
+        print(f"MPS memory ({label}): current={current:.2f} GiB{suffix}", flush=True)
+    except Exception as exc:
+        print(f"MPS memory report unavailable ({label}): {exc}", flush=True)
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", default="data/processed/pure_v2")
     parser.add_argument("--output-dir", default="artifacts/pure_v2")
     parser.add_argument("--epochs", type=int, default=5, help="Maximum total epoch number, including resumed epochs")
-    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--batch-size", type=int, default=1024, help="Training batch size")
+    parser.add_argument("--eval-batch-size", type=int, default=4096, help="Separate, usually smaller batch size for validation/test")
+    parser.add_argument("--skip-test-eval", action="store_true", help="Do not evaluate the held-out test split during experiments; use validation metrics for tuning")
     parser.add_argument("--embedding-dim", type=int, default=None, help="Defaults to 32, or uses the saved value when resuming")
     parser.add_argument("--learning-rate", type=float, default=0.001)
     parser.add_argument("--max-train-rows", type=int, default=0)
@@ -140,8 +163,8 @@ def main() -> None:
     parser.add_argument("--min-delta", type=float, default=0.0001, help="Minimum validation AUC improvement to count as progress")
     args = parser.parse_args()
 
-    if args.epochs < 1 or args.batch_size < 1:
-        parser.error("--epochs and --batch-size must be positive")
+    if args.epochs < 1 or args.batch_size < 1 or args.eval_batch_size < 1:
+        parser.error("--epochs, --batch-size, and --eval-batch-size must be positive")
     if args.cpu_threads < 0 or args.cooldown_every_batches < 0 or args.cooldown_seconds < 0:
         parser.error("CPU threads, cooldown interval, and cooldown seconds cannot be negative")
     if args.early_stopping_patience < 0 or args.min_delta < 0:
@@ -176,6 +199,9 @@ def main() -> None:
     else:
         print("Accelerator: CPU (CUDA/MPS unavailable)")
     print(f"PyTorch CPU threads: {torch.get_num_threads()}")
+    print(f"Training batch size: {args.batch_size}; evaluation batch size: {args.eval_batch_size}")
+    if args.skip_test_eval:
+        print("Held-out test evaluation: SKIPPED (validation only; recommended while tuning)")
     if args.cooldown_every_batches:
         print(
             f"Thermal pacing: pause {args.cooldown_seconds:g}s every "
@@ -228,6 +254,7 @@ def main() -> None:
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
     pos_weights = target_pos_weights(train.labels, device)
+    report_mps_memory(device, "after model/optimizer initialization")
 
     best_score = -float("inf")
     best_epoch = 0
@@ -245,6 +272,10 @@ def main() -> None:
         model.load_state_dict(resume_checkpoint["model_state_dict"])
         if resume_kind == "latest" and "optimizer_state_dict" in resume_checkpoint:
             optimizer.load_state_dict(resume_checkpoint["optimizer_state_dict"])
+            # The command-line learning rate is authoritative on resume. PyTorch's
+            # optimizer.load_state_dict otherwise silently restores the old LR.
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = args.learning_rate
             completed_epoch = int(resume_checkpoint.get("epoch", 0))
             start_epoch = completed_epoch + 1
             best_score = float(resume_checkpoint.get("best_score", -float("inf")))
@@ -326,19 +357,22 @@ def main() -> None:
                             torch.mps.synchronize()
                         time.sleep(args.cooldown_seconds)
             except KeyboardInterrupt:
-                completed_history = [row for row in history if int(row.get("epoch", 0)) < epoch]
-                atomic_write_json(completed_history, history_path)
-                save_latest(epoch - 1, completed_history, interrupted_during=epoch)
+                # Do not save the partially updated model under the previous epoch number.
+                # Keep latest_checkpoint.pt at the last fully completed epoch. On resume,
+                # the interrupted epoch will be replayed cleanly from that checkpoint.
+                completed_epoch = int(history[-1]["epoch"]) if history else 0
                 print(
-                    f"\nInterrupted during epoch {epoch}. Saved latest_checkpoint.pt with current weights "
-                    f"and optimizer state. Resume later with the same output directory and --resume."
+                    f"\nInterrupted during epoch {epoch}. The incomplete epoch was NOT checkpointed. "
+                    f"The last completed-epoch checkpoint remains at epoch {completed_epoch}. "
+                    "Resume with the same output directory and --resume."
                 )
                 raise SystemExit(130)
             finally:
                 bar.close()
 
             train_loss = total / max(rows_seen, 1)
-            val_loss, metrics = evaluate(model, val, args.batch_size, device, pos_weights, metadata["binary_targets"])
+            val_loss, metrics = evaluate(model, val, args.eval_batch_size, device, pos_weights, metadata["binary_targets"])
+            report_mps_memory(device, f"after epoch {epoch} validation")
             print(f"\nEpoch {epoch}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, mean_val_AUC={metrics['mean_auc']:.4f}")
             print(
                 "  Validation AUCs: "
@@ -386,20 +420,23 @@ def main() -> None:
 
     checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
-    test_loss, test_metrics = evaluate(model, test, args.batch_size, device, pos_weights, metadata["binary_targets"])
-    result = {
-        "best_epoch": checkpoint["best_epoch"],
-        "test_loss": test_loss,
-        "test_metrics": test_metrics,
-        "checkpoint": str(best_path.resolve()),
-        "device": str(device),
-    }
-    atomic_write_json(result, out / "test_metrics.json")
-    print("\nHeld-out TEST metrics:")
-    print(f"  test_loss={test_loss:.4f}")
-    for key, value in test_metrics.items():
-        print(f"  {key}: {value:.4f}" if np.isfinite(value) else f"  {key}: unavailable")
-    print(f"\nModel saved at: {best_path.resolve()}")
+    if args.skip_test_eval:
+        print("\nHeld-out TEST evaluation skipped by request. Use validation AUC for experiment selection.")
+    else:
+        test_loss, test_metrics = evaluate(model, test, args.eval_batch_size, device, pos_weights, metadata["binary_targets"])
+        result = {
+            "best_epoch": checkpoint["best_epoch"],
+            "test_loss": test_loss,
+            "test_metrics": test_metrics,
+            "checkpoint": str(best_path.resolve()),
+            "device": str(device),
+        }
+        atomic_write_json(result, out / "test_metrics.json")
+        print("\nHeld-out TEST metrics:")
+        print(f"  test_loss={test_loss:.4f}")
+        for key, value in test_metrics.items():
+            print(f"  {key}: {value:.4f}" if np.isfinite(value) else f"  {key}: unavailable")
+    print(f"\nBest model saved at: {best_path.resolve()}")
 
 
 if __name__ == "__main__":

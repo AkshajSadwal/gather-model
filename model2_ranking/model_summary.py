@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from model_v2 import ReelsRankerV2
+from model2_ranking.model_v2 import ReelsRankerV2
 
 
 def main() -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from model_v2 import ReelsRankerV2
+from model2_ranking.model_v2 import ReelsRankerV2
 
 SCORE_WEIGHTS={"is_click":0.15,"is_like":0.60,"is_follow":0.75,"is_comment":0.65,
                "is_forward":1.00,"long_view":1.00,"is_profile_enter":0.25,

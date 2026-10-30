@@ -1,27 +1,83 @@
-# Reels Recommendation Model — V2 (Apple Silicon / macOS)
+# Reels Recommendation Model — Apple Silicon / macOS
 
-This is the V2 feature-aware, multi-task Reels ranker. It is configured for Apple Silicon Macs (M-series) using PyTorch's Metal Performance Shaders (MPS) backend. CUDA is still selected automatically on a supported NVIDIA system; otherwise it selects MPS, then CPU.
+A PyTorch-based offline recommendation project for the KuaiRand-Pure and KuaiRand-1K datasets. The current implemented model is **Model 2: a feature-aware, multi-task ranking model**. The project is being organized toward a two-stage recommendation pipeline:
 
-## Included files
+1. **Model 1 — Retrieval (planned):** retrieve a manageable set of candidate videos from the catalogue.
+2. **Model 2 — Ranking (implemented):** score candidates using user, video, metadata, and context features, then rank them.
 
-- `model_common.py`: shared target names used by V2.
-- `model_v2.py`: embedding-based, three-hidden-layer ranking model (512 → 256 → 128).
-- `model_summary.py`: reports exact parameter counts and approximate model-state memory for a prepared dataset.
-- `prepare_data_v2.py`: chronological dataset preparation for KuaiRand-Pure and KuaiRand-1K.
-- `train_v2.py`: V2 training, validation, test, early stopping, and resumable checkpoints.
-- `recommend_v2.py`: candidate scoring using a saved V2 model.
-- `download_datasets_macos.sh`: downloads and verifies the official Pure and 1K archives.
-- `check_environment.py`: checks Python packages and accelerator availability.
+The retrieval stage is not installed or implemented in the current working project yet. Do not treat this repository as a complete production retrieval/serving system.
 
-The old V1 training pipeline is intentionally omitted from this clean V2 project. The target definitions are in `model_common.py` so V2 no longer imports the V1 model file.
+The training code automatically selects CUDA when available, then Apple Silicon MPS, then CPU.
 
-## Current model architecture
+## Project structure
 
-The shared MLP has three fully connected hidden layers: **512 → 256 → 128**, each followed by ReLU and dropout (20%, 15%, and 10% respectively). The final 128-dimensional representation feeds two heads: 10 behaviour predictions and one watch-time prediction. Categorical embeddings and numeric input features are unchanged. The model is initialized from scratch for this architecture; checkpoints from the previous 256 → 128 architecture are not shape-compatible.
+Run commands from the project root: `reels-recommender-m4/`.
 
-## 1. Check your Mac
+```text
+reels-recommender-m4/
+├── common/
+│   └── model_common.py              # Shared target definitions
+├── model1_retrieval/                # Reserved for the planned retrieval model
+├── model2_ranking/
+│   ├── model_v2.py                  # ReelsRankerV2 architecture
+│   ├── train_v2.py                  # Training, validation, test, checkpoints
+│   ├── recommend_v2.py              # Score/rank videos for a user
+│   └── model_summary.py              # Parameter and memory estimates
+├── scripts/
+│   ├── prepare_data_v2.py           # KuaiRand feature preparation
+│   ├── download_datasets_macos.sh   # Download and verify datasets
+│   └── check_environment.py         # Python/PyTorch/MPS checks
+├── configs/
+│   ├── retrieval/                   # Reserved for retrieval configuration
+│   └── ranking/                     # Reserved for ranking configuration
+├── data/
+│   ├── raw/                         # Original downloaded/extracted data
+│   ├── processed/
+│   │   ├── ranking/
+│   │   │   ├── pure_v2/
+│   │   │   └── 1k_v2/
+│   │   └── retrieval/               # Reserved for retrieval data
+│   └── indexes/                     # Reserved for retrieval indexes
+├── artifacts/
+│   ├── ranking/                     # Ranking checkpoints and experiment outputs
+│   └── retrieval/                   # Reserved for retrieval artifacts
+├── reports/
+│   ├── experiments/
+│   └── legacy/
+├── docs/
+│   └── archive/                     # Archived project notes
+├── tests/
+├── requirements.txt
+├── README.md
+├── .gitignore
+└── .venv/                            # Local Python virtual environment (not committed)
+```
 
-Open Terminal and run:
+Some reserved directories may be empty until the retrieval stage is added.
+
+## Current ranking model
+
+`ReelsRankerV2` uses 36 categorical fields and 10 numeric fields for the prepared KuaiRand data. The categorical features use embeddings. The shared MLP has three fully connected hidden layers:
+
+**512 → 256 → 128**
+
+Each hidden layer uses ReLU and dropout (20%, 15%, and 10%, respectively). The final representation feeds 11 prediction outputs: 10 behaviour targets and one watch-time regression target.
+
+For the current KuaiRand-1K feature mappings and embedding dimension 32, the model has **184,836,669 parameters**. Float32 weights alone require approximately 0.69 GiB. The approximate FP32 AdamW model state (weights, gradients, and two optimizer states) is 2.75 GiB; this excludes dataset arrays, activations, temporary buffers, and macOS/MPS overhead.
+
+Checkpoints from the previous 256 → 128 architecture are not shape-compatible with this 512 → 256 → 128 architecture. Train a new checkpoint for the current architecture.
+
+## 1. Mac and environment setup
+
+The working development environment used for this project is:
+
+- Apple Silicon Mac mini M4, 16 GB unified memory
+- macOS 27.0.1, arm64
+- Python 3.12.16
+- PyTorch 2.15.0
+- MPS available
+
+Check your machine:
 
 ```bash
 uname -m
@@ -29,97 +85,134 @@ system_profiler SPHardwareDataType | grep -E 'Chip|Memory'
 sw_vers
 ```
 
-`uname -m` should say `arm64`. Note your unified-memory size. Keep at least 15 GB of free storage before downloading and preparing both datasets; more is helpful because raw archives, extracted CSVs, and processed arrays coexist.
+On Apple Silicon, `uname -m` should report `arm64`.
 
-## 2. Install prerequisites
-
-Apple's current PyTorch MPS instructions require Apple silicon, macOS 14 or later, Python 3.10 or later, and Xcode Command Line Tools. Install the tools if they are missing:
+Install Xcode Command Line Tools if they are not already installed:
 
 ```bash
 xcode-select --install
 ```
 
-Install Python 3.12 with Homebrew (install Homebrew first if `brew` is not found):
+Install Python 3.12 if needed (for example, with Homebrew):
 
 ```bash
 brew install python@3.12
 ```
 
-From the project root:
+Create and activate the project environment from the project root:
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python check_environment.py
 ```
 
-On an M-series Mac, the environment check should report `MPS available: True` and `Selected device: Apple Silicon GPU (MPS)`. Do not start full training if it reports CPU instead; inspect the Python/PyTorch install first.
+For an existing setup, activate the existing environment instead of creating another one:
 
-## 3. Download datasets
+```bash
+cd ~/Projects/reels-recommender-m4
+source .venv/bin/activate
+```
 
-The project currently supports the official KuaiRand-Pure and KuaiRand-1K datasets. It does not use KuaiRand-27K, so the 27K archive is not downloaded by this project script.
+Check the environment:
+
+```bash
+python -m scripts.check_environment
+```
+
+On the M4 setup, the expected accelerator lines include:
+
+```text
+MPS built: True
+MPS available: True
+Selected device: Apple Silicon GPU (MPS)
+```
+
+Do not assume GPU acceleration is active just because PyTorch is installed; check the output. If MPS is unavailable, investigate the Python/PyTorch installation before a long training run.
+
+## 2. Download KuaiRand datasets
+
+The current preparation pipeline supports the official **KuaiRand-Pure** and **KuaiRand-1K** datasets. It does not support KuaiRand-27K.
 
 From the project root:
 
 ```bash
-chmod +x download_datasets_macos.sh
-./download_datasets_macos.sh all
+chmod +x scripts/download_datasets_macos.sh
+bash scripts/download_datasets_macos.sh all
 ```
 
-The script downloads the official Zenodo archives, verifies their published MD5 checksums, and extracts them under `data/raw/`. It can be rerun safely; already extracted datasets are skipped. To download only one dataset, use `./download_datasets_macos.sh pure` or `./download_datasets_macos.sh 1k`.
+To download only one dataset:
 
-Expected folders:
+```bash
+bash scripts/download_datasets_macos.sh pure
+bash scripts/download_datasets_macos.sh 1k
+```
+
+The downloader stores the datasets under `data/raw/` and verifies the published MD5 checksums before extraction. Expected extracted directories:
 
 ```text
 data/raw/KuaiRand-Pure/data/
 data/raw/KuaiRand-1K/data/
 ```
 
-Keep the archives until extraction is confirmed. Pure is about 47 MB compressed; 1K is about 1.1 GB compressed and roughly 4.3 GB extracted. The 27K dataset is much larger and is not supported by the current preparation script.
+Keep the downloaded archives until extraction has been confirmed. Raw archives, extracted CSVs, and prepared arrays can coexist, so ensure sufficient free storage before downloading and preparing both datasets.
 
-## 4. Prepare the datasets
+## 3. Prepare datasets
 
-Run Pure first as a small end-to-end check:
+Prepare Pure first as a smaller end-to-end check:
 
 ```bash
-python -u prepare_data_v2.py \
+python -u -m scripts.prepare_data_v2 \
   --dataset pure \
   --data-dir data/raw/KuaiRand-Pure/data \
-  --output-dir data/processed/pure_v2
+  --output-dir data/processed/ranking/pure_v2
 ```
 
-Then prepare 1K (this is a much larger pandas workload; close memory-heavy apps first):
+Prepare KuaiRand-1K:
 
 ```bash
-python -u prepare_data_v2.py \
+python -u -m scripts.prepare_data_v2 \
   --dataset 1k \
   --data-dir data/raw/KuaiRand-1K/data \
-  --output-dir data/processed/1k_v2
+  --output-dir data/processed/ranking/1k_v2
 ```
 
-Pure and 1K are prepared separately. Do not combine their user/video IDs or their NPZ files. The script uses the two standard-feed logs, assigns the earlier log plus the first 80% of the later log to training, and the final chronological 10%/10% to validation/test. It intentionally excludes aggregate video statistics and random-exposure logs.
+Pure and 1K are prepared separately. **Do not combine their user/video IDs, feature mappings, or processed NPZ files.**
 
-## Model parameter summary
+The preparation script uses the standard-feed logs and makes chronological train/validation/test splits. It combines the earlier standard-feed log with the first 80% of the later log for training, then uses the final chronological portions for validation and test. It deliberately excludes aggregate video-statistics files to reduce the risk of temporal leakage and does not use random-exposure logs.
 
-After preparing a dataset, print the exact parameter count for the selected architecture:
+## 4. Inspect the prepared model size
+
+For the 1K dataset:
 
 ```bash
-python model_summary.py --data-dir data/processed/1k_v2
+python -m model2_ranking.model_summary \
+  --data-dir data/processed/ranking/1k_v2
 ```
 
-For the uploaded KuaiRand-1K metadata and 32-dimensional user/video embeddings, the 512 → 256 → 128 model has **184,836,669 parameters**. The model-state estimate assumes float32 parameters, gradients, and two AdamW state tensors; it excludes the prepared dataset arrays, activation memory, temporary buffers, and macOS/MPS overhead.
-
-## 5. Verify MPS, then run a small smoke test
+For Pure:
 
 ```bash
-python check_environment.py
-python -u train_v2.py \
-  --data-dir data/processed/pure_v2 \
-  --output-dir artifacts/pure_v2_smoke \
+python -m model2_ranking.model_summary \
+  --data-dir data/processed/ranking/pure_v2
+```
+
+The summary reports the parameter count and an approximate model-state memory estimate. The estimate is not the full runtime memory requirement; it excludes data arrays, activations, temporary buffers, and operating-system overhead.
+
+## 5. Run a small smoke test
+
+Before a full run, verify MPS and train a small subset on Pure:
+
+```bash
+python -m scripts.check_environment
+
+python -u -m model2_ranking.train_v2 \
+  --data-dir data/processed/ranking/pure_v2 \
+  --output-dir artifacts/ranking/pure_v2_smoke \
   --epochs 1 \
   --batch-size 256 \
+  --eval-batch-size 1024 \
   --embedding-dim 32 \
   --max-train-rows 100000 \
   --cpu-threads 4 \
@@ -127,63 +220,125 @@ python -u train_v2.py \
   --cooldown-seconds 1
 ```
 
-This limits the training subset to 100,000 rows, but validation and test still use their complete prepared splits. Confirm the output says `Device: mps` before moving on.
+`--max-train-rows 100000` limits the training subset. Validation and test still use their complete prepared splits unless test evaluation is explicitly skipped. Confirm that the training output selects `mps` on the M4.
 
-## 6. Train from scratch
+## 6. Train the ranking model
 
-For the larger KuaiRand-1K experiment, start conservatively on the Mac mini. Use batch size 256 initially; if memory pressure remains low and the smoke test succeeds, 512 can be tested later.
+A quality-oriented KuaiRand-1K command used successfully on the M4 is:
 
 ```bash
-python -u train_v2.py \
-  --data-dir data/processed/1k_v2 \
-  --output-dir artifacts/1k_v2_m4_512_256_128 \
-  --epochs 10 \
-  --batch-size 256 \
+python -u -m model2_ranking.train_v2 \
+  --data-dir data/processed/ranking/1k_v2 \
+  --output-dir artifacts/ranking/1k_v2_m4_b16384_quality20 \
+  --epochs 20 \
+  --batch-size 16384 \
+  --eval-batch-size 4096 \
   --embedding-dim 32 \
+  --learning-rate 0.001 \
   --cpu-threads 4 \
-  --cooldown-every-batches 100 \
-  --cooldown-seconds 1 \
-  --early-stopping-patience 3
+  --cooldown-every-batches 0 \
+  --early-stopping-patience 4
 ```
 
-For Pure full training instead, use `data/processed/pure_v2` and `artifacts/pure_v2_m4` as the two directory values.
+This run configuration is a tested starting point for the described M4 machine, not a guarantee that it is optimal for every Mac or dataset state. Monitor system memory pressure during training. Do not run multiple large MPS training jobs concurrently on a 16 GB unified-memory machine.
 
-The script automatically selects CUDA, then MPS, then CPU. It saves:
+The latest recorded run with this configuration stopped early after validation stopped improving. Its reported best validation mean AUC was **0.8210**, and its held-out test mean AUC was **0.8107** (test loss 0.5507). These are results from this project's experiment and split; they should not be compared directly with scores from unrelated datasets, splits, or tasks.
 
-- `best_model.pt`: best validation model for inference.
-- `latest_checkpoint.pt`: model + optimizer + epoch state, plus available CPU/CUDA/MPS RNG state, for resuming.
-- `training_history.json`: per-epoch metrics.
-- `test_metrics.json`: held-out test metrics after training ends.
+The training script supports:
 
-To resume an interrupted run, use the **same output directory** and add `--resume` while keeping the same data and model dimensions:
+- `best_model.pt`: best checkpoint according to validation performance; use for inference.
+- `latest_checkpoint.pt`: resumable training state, including optimizer state.
+- `training_history.json`: per-epoch training/validation history.
+- `test_metrics.json`: held-out test metrics when test evaluation is run.
+
+To resume an interrupted experiment, use the **same output directory**, the same dataset and model dimensions, and add `--resume`:
 
 ```bash
-python -u train_v2.py \
-  --data-dir data/processed/1k_v2 \
-  --output-dir artifacts/1k_v2_m4_512_256_128 \
-  --epochs 10 \
-  --batch-size 256 \
+python -u -m model2_ranking.train_v2 \
+  --data-dir data/processed/ranking/1k_v2 \
+  --output-dir artifacts/ranking/1k_v2_m4_b16384_quality20 \
+  --epochs 20 \
+  --batch-size 16384 \
+  --eval-batch-size 4096 \
   --embedding-dim 32 \
+  --learning-rate 0.001 \
   --cpu-threads 4 \
-  --cooldown-every-batches 100 \
-  --cooldown-seconds 1 \
-  --early-stopping-patience 3 \
+  --cooldown-every-batches 0 \
+  --early-stopping-patience 4 \
   --resume
 ```
 
-## 7. Generate recommendations
+`--epochs` is the maximum total epoch number, including epochs completed before resuming. Do not change batch size, embedding dimension, dataset mappings, or other model-defining settings when resuming a checkpoint unless the training script explicitly supports that change.
 
-Replace `USER_ID` with a raw user ID from the selected dataset's standard-feed log:
+For experimentation, `--skip-test-eval` skips the held-out test evaluation. Use validation metrics for model tuning, and reserve test results for final evaluation rather than repeatedly tuning against the test set.
+
+## 7. Generate recommendations with the ranking model
+
+Use a raw user ID from the selected dataset's standard-feed logs and the best checkpoint for that same dataset:
 
 ```bash
-python -u recommend_v2.py \
-  --data-dir data/processed/1k_v2 \
-  --model-path artifacts/1k_v2_m4_512_256_128/best_model.pt \
+python -u -m model2_ranking.recommend_v2 \
+  --data-dir data/processed/ranking/1k_v2 \
+  --model-path artifacts/ranking/1k_v2_m4_b16384_quality20/best_model.pt \
   --user-id USER_ID \
   --top-k 20 \
   --batch-size 1024 \
-  --output artifacts/1k_v2_m4/sample_recommendations.csv
+  --output artifacts/ranking/1k_v2_m4_b16384_quality20/sample_recommendations.csv
 ```
 
-The IDs are KuaiRand dataset IDs, not IDs or video URLs from the user's app. This remains an offline candidate-ranking model, not a production retrieval/serving system.
-# feed-model-mac
+Replace `USER_ID` with an actual raw user ID from the 1K dataset. For Pure, use the Pure processed directory and a Pure checkpoint instead. KuaiRand user/video IDs are dataset identifiers; they are not IDs or video URLs from a separate app.
+
+The current ranker scores the candidate rows supplied by its recommendation workflow. A large-scale production feed still needs a retrieval stage, catalogue/index management, online feature serving, filtering, and serving infrastructure.
+
+## 8. Two-stage roadmap
+
+The planned recommendation flow is:
+
+```text
+User + context
+      │
+      ▼
+Model 1: Retrieval (planned)
+      │  Retrieve hundreds/thousands of candidate videos
+      ▼
+Candidate set
+      │
+      ▼
+Model 2: Ranking (implemented)
+      │  Predict behaviour scores and watch time
+      ▼
+Ranked recommendations
+```
+
+Keep the two stages separate:
+
+- `model1_retrieval/` will contain the user/video retrieval model, its training code, and index-building/query utilities once implemented and tested.
+- `model2_ranking/` contains the existing feature-aware multi-task ranker.
+
+Do not move the ranking model or its checkpoints into the retrieval stage. Retrieval and ranking are different tasks and will have separate datasets/artifacts when the retrieval implementation is added.
+
+## Useful maintenance commands
+
+Compile the reorganized Python modules:
+
+```bash
+python -m py_compile model2_ranking/*.py scripts/*.py
+```
+
+Check the environment:
+
+```bash
+python -m scripts.check_environment
+```
+
+Show training options without starting training:
+
+```bash
+python -m model2_ranking.train_v2 --help
+```
+
+Show data-preparation options without modifying data:
+
+```bash
+python -m scripts.prepare_data_v2 --help
+```

@@ -4,7 +4,7 @@ set -euo pipefail
 # Download the two KuaiRand variants used by this project (Pure and 1K).
 # Official Zenodo MD5 checksums are verified before extraction.
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RAW_DIR="$PROJECT_DIR/data/raw"
 BASE_URL="https://zenodo.org/records/10439422/files"
 mkdir -p "$RAW_DIR"

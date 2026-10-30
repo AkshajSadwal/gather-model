@@ -2,7 +2,7 @@
 from __future__ import annotations
 import torch
 from torch import nn
-from model_common import BINARY_TARGETS
+from common.model_common import BINARY_TARGETS
 
 class ReelsRankerV2(nn.Module):
     """Consumes multiple categorical embeddings and standardized numeric features."""

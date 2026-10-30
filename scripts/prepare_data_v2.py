@@ -8,7 +8,7 @@ import argparse, json
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from model_common import BINARY_TARGETS
+from common.model_common import BINARY_TARGETS
 
 RAW_COLUMNS = ["user_id", "video_id", "time_ms", "tab", "duration_ms", "play_time_ms",
                "is_click", "is_like", "is_follow", "is_comment", "is_forward", "is_hate",
