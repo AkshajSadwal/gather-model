@@ -1,0 +1,28 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Downloaded source data and archives
+data/raw/
+*.tar.gz
+*.tar
+*.part
+
+# Generated prepared arrays
+data/processed/**/*.npz
+data/processed/*.npz
+
+# Model checkpoints and outputs
+artifacts/**/*.pt
+artifacts/**/*.pth
+artifacts/**/*.ckpt
+logs/
+
+*.log
+*.zip
+.env
+.env.*
+!.env.example
+.vscode/

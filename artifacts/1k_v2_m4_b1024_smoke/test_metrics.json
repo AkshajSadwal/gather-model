@@ -1,0 +1,19 @@
+{
+  "best_epoch": 1,
+  "test_loss": 0.6507326585823877,
+  "test_metrics": {
+    "mean_auc": 0.6729645370519369,
+    "is_click": 0.6851127621063402,
+    "is_like": 0.7767290694415488,
+    "is_follow": 0.6377901472727603,
+    "is_comment": 0.6795222715358422,
+    "is_forward": 0.575356219288692,
+    "is_hate": 0.6073045930675938,
+    "long_view": 0.6847681242182021,
+    "is_profile_enter": 0.6382917565736723,
+    "complete_view": 0.7235537505436376,
+    "short_view": 0.7212166764710812
+  },
+  "checkpoint": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/1k_v2_m4_b1024_smoke/best_model.pt",
+  "device": "mps"
+}
