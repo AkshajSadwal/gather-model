@@ -165,7 +165,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=["pure", "1k"], default="pure")
     parser.add_argument("--data-dir", required=True)
-    parser.add_argument("--output-dir", default="data/processed/pure_v2")
+    parser.add_argument("--output-dir", default="data/processed/ranking/pure_v2")
     args = parser.parse_args()
     data_dir, out = Path(args.data_dir), Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -258,6 +258,6 @@ def main():
     print("\nV2 preparation complete.")
     print(f"Categorical fields: {len(cat_sizes)}; numeric fields: {len(NUMERIC_FEATURES)}")
     print(f"Processed files: {out.resolve()}")
-    print(f"Next: python train_v2.py --data-dir {out} --output-dir artifacts/{args.dataset}_v2 --epochs 5 --batch-size 1024")
+    print(f"Next: python -m model2_ranking.train_v2 --data-dir {out} --output-dir artifacts/ranking/{args.dataset}_v2 --epochs 5 --batch-size 4096")
 
 if __name__ == "__main__": main()

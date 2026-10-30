@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run a sequential, reproducible ranking batch-size sweep on one device.
+"""Run sequential, reproducible ranking trials on one device.
 
-The default design compares batch sizes 4096, 8192, and 16384 with the same
-three seeds. Test evaluation is skipped: the sweep selects only on validation.
+The default keeps the agreed batch size at 4096 and repeats it with three
+seeds. Other batch sizes can be supplied explicitly. Test evaluation is skipped.
 Each run gets an isolated output directory and a separate log file.
 """
 from __future__ import annotations
@@ -18,6 +18,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from common.data_version import prepared_data_fingerprint, schema_fingerprint
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -86,7 +88,7 @@ def write_reports(sweep_dir: Path, rows: list[dict[str, Any]]) -> None:
         aucs = [float(row["best_validation_auc"]) for row in group]
         times = [float(row["elapsed_seconds"]) for row in group if row.get("elapsed_seconds") is not None]
         epochs = [float(row["best_epoch"]) for row in group if row.get("best_epoch") is not None]
-        comparison.append({
+        summary_row = {
             "batch_size": batch_size,
             "completed_runs": len(group),
             "attempted_runs": sum(1 for row in rows if int(row["batch_size"]) == batch_size),
@@ -96,7 +98,13 @@ def write_reports(sweep_dir: Path, rows: list[dict[str, Any]]) -> None:
             "max_best_validation_auc": max(aucs) if aucs else None,
             "mean_elapsed_seconds": statistics.mean(times) if times else None,
             "mean_best_epoch": statistics.mean(epochs) if epochs else None,
-        })
+        }
+        metric_names = sorted({key for row in group for key in row if key.startswith("auc_")})
+        for metric_name in metric_names:
+            values = [float(row[metric_name]) for row in group if row.get(metric_name) is not None]
+            summary_row[f"mean_{metric_name}"] = statistics.mean(values) if values else None
+            summary_row[f"std_{metric_name}"] = statistics.stdev(values) if len(values) > 1 else (0.0 if values else None)
+        comparison.append(summary_row)
 
     write_json(sweep_dir / "batch_comparison.json", comparison)
     with (sweep_dir / "batch_comparison.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -111,7 +119,7 @@ def main() -> int:
     parser.add_argument("--data-dir", default="data/processed/ranking/1k_v2")
     parser.add_argument("--output-root", default="artifacts/ranking/batch_sweeps")
     parser.add_argument("--sweep-name", default=None, help="Defaults to a timestamped unique name")
-    parser.add_argument("--batch-sizes", nargs="+", type=int, default=[4096, 8192, 16384])
+    parser.add_argument("--batch-sizes", nargs="+", type=int, default=[4096], help="Defaults to the agreed 4096 batch size; optional overrides are for controlled experiments")
     parser.add_argument("--seeds", nargs="+", type=int, default=[17, 42, 2026])
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--eval-batch-size", type=int, default=4096)
@@ -142,10 +150,13 @@ def main() -> int:
     log_dir = Path("logs/ranking_batch_sweeps") / sweep_name
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    data_dir = Path(args.data_dir)
     sweep_config = {
         "sweep_name": sweep_name,
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
-        "data_dir": str(Path(args.data_dir)),
+        "data_dir": str(data_dir),
+        "schema_fingerprint": schema_fingerprint(data_dir),
+        "prepared_data_fingerprint": prepared_data_fingerprint(data_dir),
         "batch_sizes": args.batch_sizes,
         "seeds": args.seeds,
         "epochs_max": args.epochs,

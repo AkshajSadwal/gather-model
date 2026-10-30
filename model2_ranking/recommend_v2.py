@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from common.data_version import schema_fingerprint
 from model2_ranking.model_v2 import ReelsRankerV2
 
 SCORE_WEIGHTS={"is_click":0.15,"is_like":0.60,"is_follow":0.75,"is_comment":0.65,
@@ -17,12 +18,13 @@ def find_index(sorted_values, value):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--data-dir",default="data/processed/pure_v2")
-    p.add_argument("--model-path",default="artifacts/pure_v2/best_model.pt")
+    p.add_argument("--data-dir",default="data/processed/ranking/1k_v2")
+    p.add_argument("--model-path",default="artifacts/ranking/1k_v2_m4/best_model.pt")
     p.add_argument("--user-id",required=True,type=int)
     p.add_argument("--tab",type=int,default=0)
     p.add_argument("--top-k",type=int,default=20)
-    p.add_argument("--batch-size",type=int,default=2048)
+    p.add_argument("--batch-size",type=int,default=4096)
+    p.add_argument("--candidate-file",default=None,help="Optional CSV of raw video_id candidates from Model 1 retrieval; omit to score the full training catalogue")
     p.add_argument("--output",default="")
     args=p.parse_args(); data_dir=Path(args.data_dir)
     metadata=json.loads((data_dir/"metadata.json").read_text(encoding="utf-8"))
@@ -38,6 +40,13 @@ def main():
         device = torch.device("cpu")
     print(f"Inference device: {device}")
     checkpoint=torch.load(args.model_path,map_location=device,weights_only=False)
+    if checkpoint.get("dataset") != metadata.get("dataset"):
+        raise ValueError("Ranking checkpoint dataset does not match the selected prepared dataset")
+    checkpoint_schema = checkpoint.get("schema_fingerprint")
+    if checkpoint_schema is not None and checkpoint_schema != schema_fingerprint(data_dir):
+        raise ValueError("Ranking checkpoint feature/ID mappings differ from the selected prepared dataset")
+    if checkpoint.get("binary_targets") != metadata.get("binary_targets"):
+        raise ValueError("Ranking checkpoint prediction targets do not match the selected prepared dataset")
     model=ReelsRankerV2(checkpoint["categorical_sizes"],checkpoint["num_numeric_features"],
                         num_targets=len(checkpoint["binary_targets"]),embedding_dim=checkpoint["embedding_dim"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"]); model.eval()
@@ -47,12 +56,31 @@ def main():
     ref=int(metadata["reference_time_ms"]); hours=(ref//3_600_000)%24; angle=2*np.pi*hours/24.0
     sin_h,cos_h=float(np.sin(angle)),float(np.cos(angle))
     means=np.asarray(metadata["numeric_mean"],dtype=np.float32); stds=np.asarray(metadata["numeric_std"],dtype=np.float32)
-    results=[]; nvid=len(video_ids)
+    if args.candidate_file:
+        candidate_path = Path(args.candidate_file)
+        if not candidate_path.exists():
+            raise FileNotFoundError(f"Candidate CSV not found: {candidate_path}")
+        candidate_frame = pd.read_csv(candidate_path, usecols=["video_id"])
+        candidate_raw = pd.to_numeric(candidate_frame["video_id"], errors="coerce").dropna().astype(np.int64).unique()
+        positions = np.searchsorted(video_ids, candidate_raw)
+        valid = positions < len(video_ids)
+        matching = np.zeros(len(positions), dtype=bool)
+        matching[valid] = video_ids[positions[valid]] == candidate_raw[valid]
+        candidate_indices = np.unique(positions[matching] + 1).astype(np.int32)
+        if candidate_indices.size == 0:
+            raise ValueError("No candidate video IDs were found in this prepared dataset's training catalogue")
+        print(f"Scoring {len(candidate_indices):,} Model 1 candidates")
+    else:
+        candidate_indices = np.arange(1, len(video_ids) + 1, dtype=np.int32)
+        print(f"No --candidate-file supplied; scoring the full training catalogue ({len(candidate_indices):,} videos)")
+
+    results=[]; n_candidates=len(candidate_indices)
     with torch.no_grad():
-        for start0 in range(0,nvid,args.batch_size):
-            end0=min(start0+args.batch_size,nvid)
-            # Recommending by trained video index; row 0 is reserved for OOV.
-            vid_idx=np.arange(start0+1,end0+1,dtype=np.int32); raw_ids=video_ids[start0:end0]
+        for start0 in range(0,n_candidates,args.batch_size):
+            end0=min(start0+args.batch_size,n_candidates)
+            # Translate candidate model indices back to raw IDs; row 0 is reserved for OOV.
+            vid_idx=candidate_indices[start0:end0]
+            raw_ids=video_ids[vid_idx - 1]
             cat=np.column_stack([np.full(len(raw_ids),ui,dtype=np.int32),vid_idx,
                                  np.full(len(raw_ids),ti,dtype=np.int32),
                                  np.repeat(user_cat[ui:ui+1],len(raw_ids),axis=0),video_cat[vid_idx]]).astype(np.int64)
@@ -63,12 +91,14 @@ def main():
                                          un,np.log1p(age),np.log1p(np.maximum(width[vid_idx],0)),
                                          np.log1p(np.maximum(height[vid_idx],0))]).astype(np.float32)
             numeric=(numeric_raw-means)/stds
-            logits,_=model(torch.from_numpy(cat).to(device),torch.from_numpy(numeric.astype(np.float32)).to(device))
+            logits, watch_pred_log = model(torch.from_numpy(cat).to(device),torch.from_numpy(numeric.astype(np.float32)).to(device))
             probs=torch.sigmoid(logits).cpu().numpy(); labels=checkpoint["binary_targets"]
+            predicted_watch_seconds = torch.expm1(torch.clamp(watch_pred_log, min=0.0)).cpu().numpy().reshape(-1)
             score=np.zeros(len(raw_ids),dtype=np.float32)
             for label,w in SCORE_WEIGHTS.items():
                 if label in labels: score += w*probs[:,labels.index(label)]
-            frame=pd.DataFrame({"video_id":raw_ids.astype(np.int64),"score":score})
+            frame=pd.DataFrame({"video_id":raw_ids.astype(np.int64),"score":score,
+                                "predicted_watch_time_seconds":predicted_watch_seconds})
             for j,label in enumerate(labels): frame[f"p_{label}"]=probs[:,j]
             results.append(frame.nlargest(max(1,args.top_k),"score"))
     result=pd.concat(results,ignore_index=True).nlargest(max(1,args.top_k),"score")

@@ -1,0 +1,15 @@
+[
+  {
+    "epoch": 1,
+    "train_loss": 0.6378985396957397,
+    "epoch_seconds": 4.567166667002311,
+    "validation": {
+      "sampled_recall_at_20": 0.171875,
+      "sampled_recall_at_100": 0.703125,
+      "sampled_mrr": 0.06384613176594092,
+      "median_sampled_rank": 60.0,
+      "queries": 128,
+      "sampled_negative_count": 200
+    }
+  }
+]

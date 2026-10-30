@@ -25,6 +25,7 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
+from common.data_version import prepared_data_fingerprint, schema_fingerprint
 from model2_ranking.model_v2 import ReelsRankerV2
 
 
@@ -162,10 +163,10 @@ def report_mps_memory(device: torch.device, label: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", default="data/processed/pure_v2")
-    parser.add_argument("--output-dir", default="artifacts/pure_v2")
+    parser.add_argument("--data-dir", default="data/processed/ranking/1k_v2")
+    parser.add_argument("--output-dir", default="artifacts/ranking/1k_v2_m4")
     parser.add_argument("--epochs", type=int, default=5, help="Maximum total epoch number, including resumed epochs")
-    parser.add_argument("--batch-size", type=int, default=1024, help="Training batch size")
+    parser.add_argument("--batch-size", type=int, default=4096, help="Training batch size (project default for the 16 GB M4)")
     parser.add_argument("--eval-batch-size", type=int, default=4096, help="Separate, usually smaller batch size for validation/test")
     parser.add_argument("--skip-test-eval", action="store_true", help="Do not evaluate the held-out test split during experiments; use validation metrics for tuning")
     parser.add_argument("--embedding-dim", type=int, default=None, help="Defaults to 32, or uses the saved value when resuming")
@@ -215,6 +216,8 @@ def main() -> None:
             )
     out.mkdir(parents=True, exist_ok=True)
     metadata = json.loads((data_dir / "metadata.json").read_text(encoding="utf-8"))
+    feature_schema_fingerprint = schema_fingerprint(data_dir)
+    dataset_fingerprint = prepared_data_fingerprint(data_dir)
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -278,6 +281,8 @@ def main() -> None:
             "skip_test_eval": args.skip_test_eval,
         },
         "dataset": metadata.get("dataset"),
+        "schema_fingerprint": feature_schema_fingerprint,
+        "prepared_data_fingerprint": dataset_fingerprint,
         "rows": {"train": train.n, "validation": val.n, "test": test.n},
         "runtime": {
             "python": platform.python_version(),
@@ -287,8 +292,6 @@ def main() -> None:
             "device": str(device),
         },
     }
-    atomic_write_json(run_metadata, out / "run_metadata.json")
-
     best_path = out / "best_model.pt"
     latest_path = out / "latest_checkpoint.pt"
     history_path = out / "training_history.json"
@@ -321,8 +324,6 @@ def main() -> None:
         "binary_targets": metadata["binary_targets"],
         "watch_time_head": True,
     }
-    atomic_write_json(run_metadata, out / "run_metadata.json")
-
     model = ReelsRankerV2(
         metadata["categorical_sizes"],
         len(metadata["numeric_features"]),
@@ -340,6 +341,11 @@ def main() -> None:
     start_epoch = 1
 
     if resume_checkpoint is not None:
+        saved_fingerprint = resume_checkpoint.get("prepared_data_fingerprint")
+        if saved_fingerprint is not None and saved_fingerprint != dataset_fingerprint:
+            raise ValueError("Prepared train/validation/test arrays differ from the checkpoint; do not resume on changed data")
+        if saved_fingerprint is None:
+            print("WARNING: checkpoint has no prepared-data fingerprint; dataset identity cannot be fully verified.")
         saved_seed = resume_checkpoint.get("seed")
         if saved_seed is not None and int(saved_seed) != args.seed:
             raise ValueError(
@@ -388,6 +394,8 @@ def main() -> None:
             )
             print("The saved model weights are reused; this is a warm restart, not an exact optimizer resume.")
 
+    atomic_write_json(run_metadata, out / "run_metadata.json")
+
     def save_latest(completed_epoch: int, checkpoint_history: list[dict[str, Any]], interrupted_during: int | None = None) -> None:
         payload = {
             "model_state_dict": model.state_dict(),
@@ -402,6 +410,8 @@ def main() -> None:
             "no_improve_epochs": no_improve_epochs,
             "history": checkpoint_history,
             "dataset": metadata["dataset"],
+            "schema_fingerprint": feature_schema_fingerprint,
+            "prepared_data_fingerprint": dataset_fingerprint,
             "model_version": 2,
             "seed": args.seed,
             "run_name": args.run_name or out.name,
@@ -494,6 +504,8 @@ def main() -> None:
                     "validation_loss": val_loss,
                     "validation_metrics": metrics,
                     "dataset": metadata["dataset"],
+                    "schema_fingerprint": feature_schema_fingerprint,
+                    "prepared_data_fingerprint": dataset_fingerprint,
                     "model_version": 2,
                     "seed": args.seed,
                     "run_name": args.run_name or out.name,

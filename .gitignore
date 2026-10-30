@@ -26,3 +26,6 @@ logs/
 .env.*
 !.env.example
 .vscode/
+
+# Generated retrieval vector indexes (large, rebuildable)
+data/indexes/
