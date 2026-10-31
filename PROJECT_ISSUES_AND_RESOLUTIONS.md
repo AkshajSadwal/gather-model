@@ -681,3 +681,39 @@ Verification performed in the patch-building environment:
 - A tiny synthetic one-epoch hybrid run completed on CPU, including warm training steps, validation, checkpoint writing and metadata writing. This synthetic test validates the code path only, not model quality or MPS performance.
 
 Suggested next real-data test on the Mac: warm-start from the original sampled-negative checkpoint with learning rate 3e-5, 5% in-batch auxiliary weight, one epoch and 131,072 eligible positive rows (32 updates). Use a larger fixed validation query set (2,048 queries) to reduce metric quantization. Do not run full 10-epoch in-batch-only training again with the prior configuration.
+
+## 14. Retrieval diagnosis patch — raw/filtered and cohort breakdowns (2026-11-01)
+
+The latest full-catalogue results confirm that the original retrieval model remains the best validated checkpoint. Before another architecture or loss change, the next step is to isolate the failure modes.
+
+### Findings from the latest source audit
+
+- The full-catalogue evaluator ranks each held-out positive against all catalogue items, including other positive items previously observed for the same user during training. This is explicitly documented in `scripts/evaluate_retrieval.py`.
+- The retrieval training sampler rejects known-positive user-item pairs from sampled negatives. Thus training and the unfiltered evaluation candidate sets differ in this respect.
+- The dataset has 53.14% of positive validation queries on video IDs unseen during training, although their catalogue metadata is available. These videos have OOV video-ID embeddings and rely on the video side features.
+- The user tower uses user ID/profile and request context features; it does not currently encode an ordered sequence or aggregate of recent watched videos. This is a structural limitation for a personalized short-video feed, especially for changing interests/session context.
+- The current evaluator samples multiple query rows per user. Its existing bootstrap intervals are per query, not clustered by user. The new diagnostic reports user-cluster bootstrap intervals.
+- The current popularity and model metrics are not sufficient to distinguish cold-start, long-tail and seen-item competition effects. Cohort diagnostics are needed before selecting another training objective.
+
+### New diagnostic capability
+
+Added `scripts/diagnose_retrieval.py` and `tests/test_retrieval_diagnostics.py`.
+
+The script:
+
+- Uses the same validation query sampling seed and full-catalogue index as the existing evaluator.
+- Reports raw full-catalogue ranks and filtered ranks after removing the user's other known-positive training items. The held-out target itself is retained, even if it appeared in training for that user.
+- Applies the same raw/filtered candidate definitions to the popularity baseline.
+- Breaks results down by metadata-backed unseen video IDs, training interaction exposure cohorts, and positive event types.
+- Reports query-weighted means with user-cluster bootstrap confidence intervals for Recall@K.
+- Does not modify model checkpoints, indexes, or the existing benchmark evaluator.
+
+### Verification
+
+- All project Python modules compile in the patch workspace.
+- All 32 unit tests pass, including four new tests for filtered rank accounting and user-cluster bootstrap behavior.
+- The new script has not yet been run against the user's local prepared KuaiRand arrays/indexes. That real-data run is the next required validation.
+
+### Next action
+
+Run the diagnostic against both the original checkpoint/index and the hybrid epoch-1 checkpoint/index using the same 5,000-query validation sample and seed 314159. Compare cold-start versus training-known items, head/tail exposure cohorts, and raw versus filtered Recall@K. Do not start another full training run until these reports identify which failure mode is dominant.
