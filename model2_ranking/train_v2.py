@@ -56,6 +56,24 @@ class SplitArrays:
         self.n = int(self.categorical.shape[0])
 
 
+def split_row_metadata(train_rows: int, validation_rows: int, test_split, preparation_metadata: dict) -> dict:
+    """Row counts for run metadata; the test split may be intentionally not loaded.
+
+    When --skip-test-eval is used the test arrays are never read, so the test row
+    count comes from the preparation metadata (or None for older prepared data).
+    """
+    loaded = test_split is not None
+    test_rows = int(test_split.n) if loaded else preparation_metadata.get("test_rows")
+    return {
+        "rows": {
+            "train": int(train_rows),
+            "validation": int(validation_rows),
+            "test": None if test_rows is None else int(test_rows),
+        },
+        "test_split_loaded": loaded,
+    }
+
+
 def iter_batches(split, batch_size: int, device: torch.device, shuffle: bool):
     order = torch.randperm(split.n) if shuffle else torch.arange(split.n)
     for start in range(0, split.n, batch_size):
@@ -259,7 +277,7 @@ def main() -> None:
     print("Loading prepared V2 arrays...")
     train = SplitArrays(data_dir / "train.npz")
     val = SplitArrays(data_dir / "validation.npz")
-    test = SplitArrays(data_dir / "test.npz")
+    test = None if args.skip_test_eval else SplitArrays(data_dir / "test.npz")
     if args.max_train_rows > 0 and train.n > args.max_train_rows:
         k = args.max_train_rows
         for attr in ("categorical", "numeric", "labels", "watch"):
@@ -292,7 +310,7 @@ def main() -> None:
         "dataset": metadata.get("dataset"),
         "schema_fingerprint": feature_schema_fingerprint,
         "prepared_data_fingerprint": dataset_fingerprint,
-        "rows": {"train": train.n, "validation": val.n, "test": test.n},
+        **split_row_metadata(train.n, val.n, test, metadata),
         "runtime": {
             "python": platform.python_version(),
             "platform": platform.platform(),
