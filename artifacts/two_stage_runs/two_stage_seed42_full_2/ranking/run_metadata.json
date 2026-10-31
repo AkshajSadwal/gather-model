@@ -1,0 +1,57 @@
+{
+  "status": "running",
+  "run_name": "two_stage_seed42_full_2_ranking",
+  "started_at_utc": "2026-10-30T17:04:10.464450+00:00",
+  "seed": 42,
+  "config": {
+    "data_dir": "/Users/akshaj/Projects/reels-recommender-m4/data/processed/ranking/1k_v2",
+    "output_dir": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs/two_stage_seed42_full_2/ranking",
+    "epochs_max": 20,
+    "batch_size": 4096,
+    "eval_batch_size": 4096,
+    "embedding_dim_requested": 32,
+    "learning_rate": 0.001,
+    "max_train_rows": 0,
+    "cpu_threads": 4,
+    "cooldown_every_batches": 0,
+    "cooldown_seconds": 2.0,
+    "early_stopping_patience": 4,
+    "min_delta": 0.0001,
+    "skip_test_eval": true
+  },
+  "dataset": "1k",
+  "schema_fingerprint": "7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7",
+  "prepared_data_fingerprint": "1184e422aa2f009f6f2493f92e2ee029cd498dbca4319328fbd38e25c3853bab",
+  "rows": {
+    "train": 10381632,
+    "validation": 665706,
+    "test": 665707
+  },
+  "test_split_loaded": false,
+  "runtime": {
+    "python": "3.12.16",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "pytorch": "2.15.0",
+    "numpy": "2.5.4",
+    "device": "mps"
+  },
+  "model": {
+    "architecture": "512-256-128",
+    "embedding_dim": 32,
+    "categorical_fields": 36,
+    "numeric_fields": 10,
+    "binary_targets": [
+      "is_click",
+      "is_like",
+      "is_follow",
+      "is_comment",
+      "is_forward",
+      "is_hate",
+      "long_view",
+      "is_profile_enter",
+      "complete_view",
+      "short_view"
+    ],
+    "watch_time_head": true
+  }
+}

@@ -166,6 +166,10 @@ def main() -> int:
                         help="Fixed seed for validation/test query and negative sampling; keep constant across training-seed repeats")
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--init-from", type=Path, default=None,
+        help="Warm-start a new fine-tuning run from this best_model.pt; optimizer state is intentionally reset",
+    )
     parser.add_argument("--evaluate-test", action="store_true", help="Evaluate sampled retrieval metrics on the held-out test split after training; keep off while tuning")
     args = parser.parse_args()
 
@@ -174,6 +178,10 @@ def main() -> int:
         parser.error("epochs, batch size, negatives, and evaluation sizes must be positive")
     if args.seed < 0 or args.eval_seed < 0 or args.cpu_threads < 0 or args.temperature <= 0:
         parser.error("training/evaluation seeds and CPU threads must be nonnegative; temperature must be positive")
+    if args.resume and args.init_from is not None:
+        parser.error("Use either --resume or --init-from, not both")
+    if args.init_from is not None and not args.init_from.is_file():
+        parser.error(f"--init-from checkpoint does not exist: {args.init_from}")
     if args.max_positive_rows < 0:
         parser.error("--max-positive-rows cannot be negative")
     if not 0 <= args.hard_negative_sample_rate <= 1:
@@ -247,6 +255,7 @@ def main() -> int:
     no_improve = 0
     start_epoch = 1
 
+    warm_start_info = None
     if args.resume:
         if not latest_path.exists():
             raise FileNotFoundError(f"Cannot resume: {latest_path} does not exist")
@@ -293,6 +302,44 @@ def main() -> int:
         rng.bit_generator.state = saved["numpy_rng_state"]
         restore_device_rng(saved, device)
         print(f"Resumed after completed epoch {start_epoch - 1}")
+    elif args.init_from is not None:
+        saved = torch.load(args.init_from, map_location="cpu", weights_only=False)
+        if saved.get("dataset") != metadata.get("dataset"):
+            raise ValueError("The --init-from checkpoint dataset does not match the selected prepared data")
+        if saved.get("data_fingerprint") != schema_fingerprint:
+            raise ValueError("The --init-from checkpoint metadata/ID-map schema does not match")
+        if saved.get("prepared_data_fingerprint") != prepared_fingerprint:
+            raise ValueError("The --init-from checkpoint was trained on different prepared train/validation/test arrays")
+        model.load_state_dict(saved["model_state_dict"])
+        source_metrics = saved.get("best_validation_metrics", {})
+        baseline_score = float(source_metrics.get("sampled_recall_at_100", saved.get("best_score", float("nan"))))
+        if not np.isfinite(baseline_score):
+            raise ValueError("The --init-from checkpoint has no finite sampled Recall@100 baseline")
+        source_best_epoch = int(saved.get("best_epoch", 0))
+        best_score = baseline_score
+        best_epoch = 0  # epoch 0 denotes the imported starting checkpoint in this fine-tune run
+        no_improve = 0
+        baseline_payload = dict(saved)
+        baseline_payload.update({
+            "best_epoch": 0,
+            "source_best_epoch": source_best_epoch,
+            "warm_start_source": str(args.init_from.resolve()),
+            "warm_start_baseline_score": baseline_score,
+            "fine_tune_seed": args.seed,
+        })
+        atomic_save(baseline_payload, best_path)
+        warm_start_info = {
+            "source_checkpoint": str(args.init_from.resolve()),
+            "source_best_epoch": source_best_epoch,
+            "baseline_sampled_recall_at_100": baseline_score,
+            "optimizer_state": "reset; fresh AdamW state for fine-tuning",
+        }
+        print(
+            f"Warm-started from best checkpoint (source epoch {source_best_epoch}); "
+            f"baseline sampled Recall@100={baseline_score:.4f}. Optimizer state reset."
+        )
+    else:
+        warm_start_info = None
 
     run_metadata = {
         "status": "running", "started_at_utc": started_at, "seed": args.seed,
@@ -300,12 +347,13 @@ def main() -> int:
         "data_fingerprint": schema_fingerprint,
         "prepared_data_fingerprint": prepared_fingerprint,
         "model": "TwoTowerRetrieval", "architecture": "user: 512-256-128; video: 512-256-128; output: normalized 128d",
-        "config": vars(args), "rows": {"train": train.rows, "positive_train": int(positive_idx.size), "validation": validation.rows},
+        "config": {**vars(args), "init_from": str(args.init_from.resolve()) if args.init_from is not None else None}, "rows": {"train": train.rows, "positive_train": int(positive_idx.size), "validation": validation.rows},
         "runtime": {"python": platform.python_version(), "platform": platform.platform(), "torch": torch.__version__, "numpy": np.__version__, "device": str(device)},
         "positive_event_weights": {"is_click": 0.25, "is_like": 1.0, "is_follow": 1.5, "is_comment": 1.25, "is_forward": 1.5, "long_view": 2.0, "is_profile_enter": 0.75, "complete_view": 2.0},
         "short_view_negative_weight": 0.5,
         "negative_sampling": "two random catalogue items per positive by default; known training positives are rejected; explicit is_hate and short_view pairs can be sampled as hard negatives; unobserved items are not confirmed dislikes",
         "eval_seed": args.eval_seed,
+        "warm_start": warm_start_info,
         "validation_protocol": f"sampled retrieval: up to {args.eval_queries} positive queries, each ranked against {args.eval_negatives} sampled catalogue negatives using fixed eval_seed={args.eval_seed}; not full-catalogue recall",
     }
     write_json(run_metadata, out / "run_metadata.json")

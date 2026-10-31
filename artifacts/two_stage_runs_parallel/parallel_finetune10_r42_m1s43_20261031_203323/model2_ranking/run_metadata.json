@@ -1,0 +1,83 @@
+{
+  "status": "completed",
+  "run_name": "parallel_finetune10_r42_m1s43_20261031_203323_model2_ranking",
+  "started_at_utc": "2026-10-31T15:03:27.190925+00:00",
+  "seed": 42,
+  "config": {
+    "data_dir": "/Users/akshaj/Projects/reels-recommender-m4/data/processed/ranking/1k_v2",
+    "output_dir": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_finetune10_r42_m1s43_20261031_203323/model2_ranking",
+    "epochs_max": 10,
+    "batch_size": 4096,
+    "eval_batch_size": 4096,
+    "embedding_dim_requested": 32,
+    "learning_rate": 0.0001,
+    "max_train_rows": 0,
+    "cpu_threads": 2,
+    "cooldown_every_batches": 0,
+    "cooldown_seconds": 2.0,
+    "early_stopping_patience": 0,
+    "min_delta": 0.0,
+    "skip_test_eval": true,
+    "init_from": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model2_ranking/best_model.pt"
+  },
+  "dataset": "1k",
+  "schema_fingerprint": "7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7",
+  "prepared_data_fingerprint": "1184e422aa2f009f6f2493f92e2ee029cd498dbca4319328fbd38e25c3853bab",
+  "rows": {
+    "train": 10381632,
+    "validation": 665706,
+    "test": 665707
+  },
+  "runtime": {
+    "python": "3.12.16",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "pytorch": "2.15.0",
+    "numpy": "2.5.4",
+    "device": "mps"
+  },
+  "model": {
+    "architecture": "512-256-128",
+    "embedding_dim": 32,
+    "categorical_fields": 36,
+    "numeric_fields": 10,
+    "binary_targets": [
+      "is_click",
+      "is_like",
+      "is_follow",
+      "is_comment",
+      "is_forward",
+      "is_hate",
+      "long_view",
+      "is_profile_enter",
+      "complete_view",
+      "short_view"
+    ],
+    "watch_time_head": true
+  },
+  "warm_start": {
+    "source_checkpoint": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model2_ranking/best_model.pt",
+    "source_best_epoch": 3,
+    "baseline_validation_auc": 0.8237796163708777,
+    "optimizer_state": "reset; fresh AdamW state for fine-tuning"
+  },
+  "completed_at_utc": "2026-10-31T16:40:15.988108+00:00",
+  "elapsed_seconds": 5808.787370709,
+  "epochs_recorded": 10,
+  "best_epoch": 1,
+  "best_validation_score": 0.8251948193585539,
+  "best_validation_loss": 0.5438812762302861,
+  "best_validation_metrics": {
+    "mean_auc": 0.8251948193585539,
+    "is_click": 0.7614440848776151,
+    "is_like": 0.9073709328962228,
+    "is_follow": 0.8294007686823819,
+    "is_comment": 0.8845665818298676,
+    "is_forward": 0.8534885097626016,
+    "is_hate": 0.8857807391895737,
+    "long_view": 0.7568951836471677,
+    "is_profile_enter": 0.7785995212974628,
+    "complete_view": 0.8037848910404979,
+    "short_view": 0.7906169803621483
+  },
+  "test_evaluation": "skipped"
+}

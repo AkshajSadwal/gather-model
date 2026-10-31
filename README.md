@@ -457,3 +457,21 @@ Show data-preparation options without modifying data:
 ```bash
 python -m scripts.prepare_data_v2 --help
 ```
+
+
+## Run both training stages with one command
+
+See [`docs/TWO_STAGE_TRAINING.md`](docs/TWO_STAGE_TRAINING.md). The orchestrator runs ranking and retrieval **sequentially**, not concurrently, to keep unified-memory usage safer on a 16 GB M4. The default is batch size 4,096, maximum 20 epochs, seed 42, and early-stopping patience 4.
+
+```bash
+python -u -m scripts.run_two_stage_training \
+  --data-dir data/processed/ranking/1k_v2 \
+  --output-root artifacts/two_stage_runs \
+  --epochs 20 \
+  --batch-size 4096 \
+  --eval-batch-size 4096 \
+  --seed 42 \
+  --eval-seed 314159 \
+  --early-stopping-patience 4 \
+  --cpu-threads 4
+```

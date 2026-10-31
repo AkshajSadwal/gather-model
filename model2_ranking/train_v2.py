@@ -175,6 +175,10 @@ def main() -> None:
     parser.add_argument("--run-name", default=None, help="Optional human-readable experiment name saved in metadata/checkpoints")
     parser.add_argument("--max-train-rows", type=int, default=0)
     parser.add_argument("--resume", action="store_true", help="Resume latest checkpoint, or initialize from best_model.pt if needed")
+    parser.add_argument(
+        "--init-from", type=Path, default=None,
+        help="Warm-start a new fine-tuning run from this best_model.pt; optimizer state is intentionally reset",
+    )
     parser.add_argument("--cpu-threads", type=int, default=4, help="Limit PyTorch CPU threads to reduce contention; 0 keeps PyTorch's default")
     parser.add_argument("--cooldown-every-batches", type=int, default=100, help="Synchronize and pause every N training batches; 0 disables pauses")
     parser.add_argument("--cooldown-seconds", type=float, default=2.0, help="Pause duration for --cooldown-every-batches")
@@ -188,6 +192,10 @@ def main() -> None:
         parser.error("CPU threads, cooldown interval, and cooldown seconds cannot be negative")
     if args.early_stopping_patience < 0 or args.min_delta < 0:
         parser.error("Early-stopping patience and min-delta cannot be negative")
+    if args.resume and args.init_from is not None:
+        parser.error("Use either --resume or --init-from, not both")
+    if args.init_from is not None and not args.init_from.is_file():
+        parser.error(f"--init-from checkpoint does not exist: {args.init_from}")
     if args.seed < 0:
         parser.error("--seed must be nonnegative")
 
@@ -279,6 +287,7 @@ def main() -> None:
             "early_stopping_patience": args.early_stopping_patience,
             "min_delta": args.min_delta,
             "skip_test_eval": args.skip_test_eval,
+            "init_from": str(args.init_from.resolve()) if args.init_from is not None else None,
         },
         "dataset": metadata.get("dataset"),
         "schema_fingerprint": feature_schema_fingerprint,
@@ -297,6 +306,9 @@ def main() -> None:
     history_path = out / "training_history.json"
     resume_checkpoint = None
     resume_kind = None
+    init_checkpoint = None
+    if args.init_from is not None:
+        init_checkpoint = torch.load(args.init_from, map_location="cpu", weights_only=False)
     if args.resume:
         if latest_path.exists():
             resume_checkpoint = torch.load(latest_path, map_location="cpu", weights_only=False)
@@ -309,7 +321,8 @@ def main() -> None:
                 f"--resume was requested, but neither {latest_path} nor {best_path} exists."
             )
 
-    saved_embedding_dim = resume_checkpoint.get("embedding_dim") if resume_checkpoint else None
+    dimension_checkpoint = resume_checkpoint if resume_checkpoint is not None else init_checkpoint
+    saved_embedding_dim = dimension_checkpoint.get("embedding_dim") if dimension_checkpoint else None
     if args.embedding_dim is not None and saved_embedding_dim is not None and args.embedding_dim != saved_embedding_dim:
         raise ValueError(
             f"Checkpoint uses embedding_dim={saved_embedding_dim}, but --embedding-dim={args.embedding_dim}. "
@@ -393,6 +406,47 @@ def main() -> None:
                 f"so the optimizer will restart and training continues at epoch {start_epoch}."
             )
             print("The saved model weights are reused; this is a warm restart, not an exact optimizer resume.")
+    elif init_checkpoint is not None:
+        saved_fingerprint = init_checkpoint.get("prepared_data_fingerprint")
+        if saved_fingerprint != dataset_fingerprint:
+            raise ValueError("The --init-from checkpoint was trained on different prepared data")
+        saved_schema = init_checkpoint.get("schema_fingerprint")
+        if saved_schema is not None and saved_schema != feature_schema_fingerprint:
+            raise ValueError("The --init-from checkpoint feature schema does not match this dataset")
+        if init_checkpoint.get("categorical_sizes") != metadata["categorical_sizes"]:
+            raise ValueError("The --init-from checkpoint categorical feature sizes do not match")
+        if init_checkpoint.get("num_numeric_features") != len(metadata["numeric_features"]):
+            raise ValueError("The --init-from checkpoint numeric feature count does not match")
+        if init_checkpoint.get("binary_targets") != metadata["binary_targets"]:
+            raise ValueError("The --init-from checkpoint targets do not match")
+        model.load_state_dict(init_checkpoint["model_state_dict"])
+        source_metrics = init_checkpoint.get("validation_metrics", {})
+        baseline_score = float(init_checkpoint.get("validation_score", source_metrics.get("mean_auc", float("nan"))))
+        if not np.isfinite(baseline_score):
+            raise ValueError("The --init-from checkpoint has no finite validation AUC to use as the starting best score")
+        source_best_epoch = int(init_checkpoint.get("best_epoch", 0))
+        best_score = baseline_score
+        best_epoch = 0  # epoch 0 denotes the imported starting checkpoint in this fine-tune run
+        no_improve_epochs = 0
+        baseline_payload = dict(init_checkpoint)
+        baseline_payload.update({
+            "best_epoch": 0,
+            "source_best_epoch": source_best_epoch,
+            "warm_start_source": str(args.init_from.resolve()),
+            "warm_start_baseline_score": baseline_score,
+            "fine_tune_run_name": args.run_name or out.name,
+        })
+        atomic_torch_save(baseline_payload, best_path)
+        run_metadata["warm_start"] = {
+            "source_checkpoint": str(args.init_from.resolve()),
+            "source_best_epoch": source_best_epoch,
+            "baseline_validation_auc": baseline_score,
+            "optimizer_state": "reset; fresh AdamW state for fine-tuning",
+        }
+        print(
+            f"Warm-started from best checkpoint (source epoch {source_best_epoch}); "
+            f"baseline validation AUC={baseline_score:.4f}. Optimizer state reset."
+        )
 
     atomic_write_json(run_metadata, out / "run_metadata.json")
 

@@ -1,0 +1,77 @@
+{
+  "status": "completed",
+  "run_name": "parallel_r42_m1s43_20261030_225836_model2_ranking",
+  "started_at_utc": "2026-10-30T17:28:38.469430+00:00",
+  "seed": 42,
+  "config": {
+    "data_dir": "/Users/akshaj/Projects/reels-recommender-m4/data/processed/ranking/1k_v2",
+    "output_dir": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model2_ranking",
+    "epochs_max": 20,
+    "batch_size": 4096,
+    "eval_batch_size": 4096,
+    "embedding_dim_requested": 32,
+    "learning_rate": 0.001,
+    "max_train_rows": 0,
+    "cpu_threads": 2,
+    "cooldown_every_batches": 0,
+    "cooldown_seconds": 2.0,
+    "early_stopping_patience": 4,
+    "min_delta": 0.0001,
+    "skip_test_eval": true
+  },
+  "dataset": "1k",
+  "schema_fingerprint": "7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7",
+  "prepared_data_fingerprint": "1184e422aa2f009f6f2493f92e2ee029cd498dbca4319328fbd38e25c3853bab",
+  "rows": {
+    "train": 10381632,
+    "validation": 665706,
+    "test": 665707
+  },
+  "test_split_loaded": false,
+  "runtime": {
+    "python": "3.12.16",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "pytorch": "2.15.0",
+    "numpy": "2.5.4",
+    "device": "mps"
+  },
+  "model": {
+    "architecture": "512-256-128",
+    "embedding_dim": 32,
+    "categorical_fields": 36,
+    "numeric_fields": 10,
+    "binary_targets": [
+      "is_click",
+      "is_like",
+      "is_follow",
+      "is_comment",
+      "is_forward",
+      "is_hate",
+      "long_view",
+      "is_profile_enter",
+      "complete_view",
+      "short_view"
+    ],
+    "watch_time_head": true
+  },
+  "completed_at_utc": "2026-10-30T18:55:57.348269+00:00",
+  "elapsed_seconds": 5238.875013500001,
+  "epochs_recorded": 7,
+  "best_epoch": 3,
+  "best_validation_score": 0.8237796163708777,
+  "best_validation_loss": 0.5381276259669694,
+  "best_validation_metrics": {
+    "mean_auc": 0.8237796163708777,
+    "is_click": 0.7622772021123216,
+    "is_like": 0.9113628164575498,
+    "is_follow": 0.8188174048112479,
+    "is_comment": 0.8864258551712982,
+    "is_forward": 0.8508897363043056,
+    "is_hate": 0.8754689406369214,
+    "long_view": 0.7584448593296578,
+    "is_profile_enter": 0.7778965298974614,
+    "complete_view": 0.8050858511136068,
+    "short_view": 0.7911269678744073
+  },
+  "test_evaluation": "skipped"
+}
