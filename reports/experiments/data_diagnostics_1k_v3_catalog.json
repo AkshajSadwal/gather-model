@@ -1,0 +1,165 @@
+{
+  "data_dir": "data/processed/ranking/1k_v3_catalog",
+  "dataset": "1k",
+  "train": {
+    "rows": 10381632,
+    "pct_unseen_user": 0.0,
+    "pct_unseen_video_id": 0.0,
+    "pct_unseen_video_with_catalogue_metadata": 0.0,
+    "pct_rows_with_no_video_metadata": 0.0,
+    "pct_video_seen_fewer_than_5_times_in_train": 47.579,
+    "pct_positive_rows_with_unseen_video_id": 0.0,
+    "pct_positive_rows_with_unseen_video_and_catalogue_metadata": 0.0,
+    "pct_positive_rows_without_catalogue_metadata": 0.0,
+    "pct_positive_rows_with_rare_video": 38.444,
+    "event_rates_pct": {
+      "is_click": 37.897,
+      "is_like": 1.546,
+      "is_follow": 0.099,
+      "is_comment": 0.263,
+      "is_forward": 0.078,
+      "is_hate": 0.101,
+      "long_view": 26.273,
+      "is_profile_enter": 1.79,
+      "complete_view": 15.125,
+      "short_view": 44.57
+    }
+  },
+  "validation": {
+    "rows": 665706,
+    "pct_unseen_user": 0.0,
+    "pct_unseen_video_id": 57.269,
+    "pct_unseen_video_with_catalogue_metadata": 57.269,
+    "pct_rows_with_no_video_metadata": 0.0,
+    "pct_video_seen_fewer_than_5_times_in_train": 19.744,
+    "pct_positive_rows_with_unseen_video_id": 53.139,
+    "pct_positive_rows_with_unseen_video_and_catalogue_metadata": 53.139,
+    "pct_positive_rows_without_catalogue_metadata": 0.0,
+    "pct_positive_rows_with_rare_video": 19.385,
+    "event_rates_pct": {
+      "is_click": 36.673,
+      "is_like": 1.616,
+      "is_follow": 0.082,
+      "is_comment": 0.271,
+      "is_forward": 0.082,
+      "is_hate": 0.028,
+      "long_view": 25.405,
+      "is_profile_enter": 1.742,
+      "complete_view": 15.043,
+      "short_view": 46.215
+    }
+  },
+  "test": {
+    "rows": 665707,
+    "pct_unseen_user": 0.0,
+    "pct_unseen_video_id": 67.74,
+    "pct_unseen_video_with_catalogue_metadata": 67.74,
+    "pct_rows_with_no_video_metadata": 0.0,
+    "pct_video_seen_fewer_than_5_times_in_train": 13.96,
+    "pct_positive_rows_with_unseen_video_id": 64.807,
+    "pct_positive_rows_with_unseen_video_and_catalogue_metadata": 64.807,
+    "pct_positive_rows_without_catalogue_metadata": 0.0,
+    "pct_positive_rows_with_rare_video": 13.359,
+    "event_rates_pct": {
+      "is_click": 37.757,
+      "is_like": 1.744,
+      "is_follow": 0.08,
+      "is_comment": 0.298,
+      "is_forward": 0.085,
+      "is_hate": 0.033,
+      "long_view": 25.946,
+      "is_profile_enter": 1.838,
+      "complete_view": 14.864,
+      "short_view": 44.726
+    }
+  },
+  "concentration": {
+    "unique_train_videos": 3929859,
+    "median_train_exposures_per_video": 1.0,
+    "pct_train_rows_on_top_1pct_videos": 17.22,
+    "pct_train_rows_on_top_10pct_videos": 50.596,
+    "pct_validation_rows_on_train_top_1pct_videos": 6.917
+  },
+  "pct_rows_whose_user_video_pair_is_in_train": {
+    "validation": 0.804,
+    "test": 0.466
+  },
+  "train_rows_per_user": {
+    "users": 1000,
+    "min": 85,
+    "median": 7389,
+    "max": 106642
+  },
+  "event_rate_pct_by_duration_decile": [
+    {
+      "duration_decile": 1,
+      "complete_view": 35.051,
+      "long_view": 36.973,
+      "short_view": 44.865,
+      "is_like": 1.536
+    },
+    {
+      "duration_decile": 2,
+      "complete_view": 29.111,
+      "long_view": 30.688,
+      "short_view": 46.593,
+      "is_like": 1.791
+    },
+    {
+      "duration_decile": 3,
+      "complete_view": 22.405,
+      "long_view": 23.432,
+      "short_view": 51.574,
+      "is_like": 1.624
+    },
+    {
+      "duration_decile": 4,
+      "complete_view": 19.437,
+      "long_view": 22.814,
+      "short_view": 50.792,
+      "is_like": 1.489
+    },
+    {
+      "duration_decile": 5,
+      "complete_view": 16.373,
+      "long_view": 25.547,
+      "short_view": 50.048,
+      "is_like": 1.334
+    },
+    {
+      "duration_decile": 6,
+      "complete_view": 5.794,
+      "long_view": 16.077,
+      "short_view": 21.749,
+      "is_like": 2.924
+    },
+    {
+      "duration_decile": 7,
+      "complete_view": 9.889,
+      "long_view": 26.517,
+      "short_view": 51.543,
+      "is_like": 1.142
+    },
+    {
+      "duration_decile": 8,
+      "complete_view": 8.603,
+      "long_view": 29.057,
+      "short_view": 47.811,
+      "is_like": 1.088
+    },
+    {
+      "duration_decile": 9,
+      "complete_view": 5.895,
+      "long_view": 28.819,
+      "short_view": 46.583,
+      "is_like": 0.983
+    },
+    {
+      "duration_decile": 10,
+      "complete_view": 3.171,
+      "long_view": 26.806,
+      "short_view": 46.039,
+      "is_like": 0.877
+    }
+  ]
+}

@@ -37,7 +37,7 @@ from common.eval_metrics import (
     bootstrap_mean_ci, expected_rank_from_scores, recall_hits, reciprocal_ranks, relevance_gains,
 )
 from common.retrieval_eval import rank_against_catalog
-from model1_retrieval.data import data_fingerprint, load_metadata, load_split
+from model1_retrieval.data import data_fingerprint, item_catalog_indices, load_metadata, load_split
 from model1_retrieval.model import TwoTowerRetrieval
 
 
@@ -98,6 +98,10 @@ def main() -> int:
         raise ValueError("Prepared metadata/ID maps differ from the model or index; rebuild them for this data version")
     if index_metadata.get("checkpoint_sha256") != sha256_file(model_path):
         raise ValueError("This index was built from a different checkpoint. Rebuild it with model1_retrieval.build_index")
+    catalog_map_path = data_dir / "catalog_maps.npz"
+    current_catalog_hash = sha256_file(catalog_map_path) if catalog_map_path.exists() else None
+    if index_metadata.get("catalog_maps_sha256") != current_catalog_hash:
+        raise ValueError("The retrieval index was built from a different video catalogue map. Rebuild the index.")
 
     embeddings = np.load(index_dir / index_metadata["files"]["embeddings"], mmap_mode="r")
     catalogue_size = int(embeddings.shape[0])
@@ -106,18 +110,30 @@ def main() -> int:
     split = load_split(data_dir, args.split)
     gain = relevance_gains(split.labels, targets)
     user_index = split.categorical[:, 0]
-    video_index = split.categorical[:, 1]
+    train_video_index = split.categorical[:, 1]
+    catalog_index = item_catalog_indices(split)
     eligible = (gain > 0) & (user_index > 0)
-    retrievable = eligible & (video_index > 0) & (video_index <= catalogue_size)
+    retrievable = eligible & (catalog_index > 0) & (catalog_index <= catalogue_size)
+    unseen_training_video = eligible & (train_video_index == 0)
+    cold_start_with_metadata = unseen_training_video & (catalog_index > 0)
+    missing_catalogue_metadata = eligible & (catalog_index == 0)
     report: dict = {
         "model_path": str(model_path), "index_dir": str(index_dir), "split": args.split,
         "checkpoint_best_epoch": checkpoint.get("best_epoch"),
         "catalogue_size": catalogue_size,
         "eligible_positive_rows": int(eligible.sum()),
-        "pct_eligible_positives_on_video_unseen_in_training": float(100.0 * (1 - retrievable.sum() / max(eligible.sum(), 1))),
+        "pct_eligible_positives_on_video_unseen_in_training": float(100.0 * unseen_training_video.sum() / max(eligible.sum(), 1)),
+        "pct_eligible_positives_on_unseen_video_with_catalogue_metadata": float(100.0 * cold_start_with_metadata.sum() / max(eligible.sum(), 1)),
+        "pct_eligible_positives_missing_from_basic_video_catalogue": float(100.0 * missing_catalogue_metadata.sum() / max(eligible.sum(), 1)),
+        "retrievable_positive_rows": int(retrievable.sum()),
+        "cold_start_positive_rows_with_metadata": int(cold_start_with_metadata.sum()),
+        "positive_rows_without_catalogue_metadata": int(missing_catalogue_metadata.sum()),
     }
-    print(f"{eligible.sum():,} eligible positive rows; {report['pct_eligible_positives_on_video_unseen_in_training']:.2f}% "
-          "are on videos the model never saw in training (these cannot be retrieved and are excluded below)")
+    print(f"{eligible.sum():,} eligible positive rows; {unseen_training_video.sum():,} "
+          f"({report['pct_eligible_positives_on_video_unseen_in_training']:.2f}%) use an unseen training video ID; "
+          f"{cold_start_with_metadata.sum():,} of those have metadata and can be indexed; "
+          f"{missing_catalogue_metadata.sum():,} ({report['pct_eligible_positives_missing_from_basic_video_catalogue']:.2f}%) "
+          "have no basic-video catalogue row and cannot be indexed")
 
     rng = np.random.default_rng(args.seed)
     candidates = np.flatnonzero(retrievable)
@@ -143,7 +159,7 @@ def main() -> int:
     shift = int(rng.integers(1, max(q, 2)))
     shuffle = np.roll(np.arange(q), shift)
     report["pct_shuffled_queries_with_same_user"] = float(100.0 * np.mean(user_index[rows] == user_index[rows][shuffle]))
-    positive_rows0 = video_index[rows].astype(np.int64) - 1   # index row i holds model video index i + 1
+    positive_rows0 = catalog_index[rows].astype(np.int64) - 1   # index row i holds catalogue item index i + 1
 
     def show(done: int, total: int) -> None:
         print(f"  scanned {done:,}/{total:,} catalogue videos", flush=True)
@@ -155,7 +171,8 @@ def main() -> int:
 
     print("Loading train.npz for the popularity baseline...")
     train = load_split(data_dir, "train")
-    popularity = np.bincount(train.categorical[:, 1], weights=relevance_gains(train.labels, targets),
+    train_catalog_indices = item_catalog_indices(train)
+    popularity = np.bincount(train_catalog_indices, weights=relevance_gains(train.labels, targets),
                              minlength=catalogue_size + 1)[1:]
     del train
     popularity_ranks = expected_rank_from_scores(np.sort(popularity), popularity[positive_rows0])

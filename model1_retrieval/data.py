@@ -17,6 +17,7 @@ class PreparedSplit:
     categorical: np.ndarray
     numeric: np.ndarray
     labels: np.ndarray
+    catalog_video_indices: np.ndarray | None = None
 
     @property
     def rows(self) -> int:
@@ -46,13 +47,17 @@ def load_split(data_dir: Path, name: str) -> PreparedSplit:
         categorical = np.asarray(payload["categorical"], dtype=np.int32)
         numeric = np.asarray(payload["numeric"], dtype=np.float32)
         labels = np.asarray(payload["labels"], dtype=np.float32)
+        catalog_video_indices = (np.asarray(payload["catalog_video_indices"], dtype=np.int32)
+                                 if "catalog_video_indices" in payload.files else None)
     if categorical.ndim != 2 or categorical.shape[1] != 36:
         raise ValueError(f"{path}: expected categorical shape [N, 36], got {categorical.shape}")
     if numeric.ndim != 2 or numeric.shape[1] != 10:
         raise ValueError(f"{path}: expected numeric shape [N, 10], got {numeric.shape}")
     if labels.ndim != 2 or labels.shape != (categorical.shape[0], 10):
         raise ValueError(f"{path}: expected labels shape [N, 10], got {labels.shape}")
-    return PreparedSplit(categorical, numeric, labels)
+    if catalog_video_indices is not None and catalog_video_indices.shape != (categorical.shape[0],):
+        raise ValueError(f"{path}: catalog_video_indices must have shape [N]")
+    return PreparedSplit(categorical, numeric, labels, catalog_video_indices)
 
 
 def target_indices(metadata: dict[str, Any]) -> tuple[dict[str, int], dict[str, float]]:
@@ -77,17 +82,23 @@ def target_indices(metadata: dict[str, Any]) -> tuple[dict[str, int], dict[str, 
     return {name: names.index(name) for name in names}, weights
 
 
+def item_catalog_indices(split: PreparedSplit) -> np.ndarray:
+    """Return 1-based full-catalogue indices, falling back to train video IDs for legacy data."""
+    if split.catalog_video_indices is not None:
+        return split.catalog_video_indices.astype(np.int32, copy=False)
+    return split.categorical[:, 1].astype(np.int32, copy=False)
+
+
 def positive_rows(split: PreparedSplit, metadata: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     indices, weights = target_indices(metadata)
     strength = np.zeros(split.rows, dtype=np.float32)
     for name, weight in weights.items():
         strength += split.labels[:, indices[name]] * float(weight)
-    # A short view is weak negative evidence. Stronger actions can outweigh it,
-    # while a click-only short skip is not promoted as a positive retrieval pair.
     strength -= split.labels[:, indices["short_view"]] * 0.5
     hate = split.labels[:, indices["is_hate"]] > 0
+    item_indices = item_catalog_indices(split)
     mask = (strength > 0) & ~hate
-    mask &= (split.categorical[:, 0] > 0) & (split.categorical[:, 1] > 0)
+    mask &= (split.categorical[:, 0] > 0) & (item_indices > 0)
     row_indices = np.flatnonzero(mask).astype(np.int64, copy=False)
     row_weights = np.clip(strength[row_indices], 0.25, 5.0)
     if row_weights.size:
@@ -97,18 +108,23 @@ def positive_rows(split: PreparedSplit, metadata: dict[str, Any]) -> tuple[np.nd
 
 def explicit_negative_pairs(split: PreparedSplit, metadata: dict[str, Any], positive_pair_keys: np.ndarray,
                             num_videos: int) -> dict[int, np.ndarray]:
-    """Return per-user explicit hate and short-view items, excluding known positives."""
+    """Return per-user explicit hate/short-view catalogue items, excluding known positives."""
     indices, _ = target_indices(metadata)
     negative_mask = (split.labels[:, indices["is_hate"]] > 0) | (split.labels[:, indices["short_view"]] > 0)
-    negative_mask &= (split.categorical[:, 0] > 0) & (split.categorical[:, 1] > 0)
+    item_indices = item_catalog_indices(split)
+    negative_mask &= (split.categorical[:, 0] > 0) & (item_indices > 0)
     rows = np.flatnonzero(negative_mask)
     if rows.size == 0:
         return {}
     users = split.categorical[rows, 0].astype(np.int64)
-    videos = split.categorical[rows, 1].astype(np.int64)
+    videos = item_indices[rows].astype(np.int64)
     keys = users * int(num_videos) + videos
     idx = np.searchsorted(positive_pair_keys, keys)
-    is_positive = (idx < positive_pair_keys.size) & (positive_pair_keys[np.minimum(idx, max(positive_pair_keys.size - 1, 0))] == keys) if positive_pair_keys.size else np.zeros(keys.shape, dtype=bool)
+    if positive_pair_keys.size:
+        safe = np.minimum(idx, positive_pair_keys.size - 1)
+        is_positive = (idx < positive_pair_keys.size) & (positive_pair_keys[safe] == keys)
+    else:
+        is_positive = np.zeros(keys.shape, dtype=bool)
     users, videos = users[~is_positive], videos[~is_positive]
     result: dict[int, np.ndarray] = {}
     for user in np.unique(users):
@@ -117,8 +133,50 @@ def explicit_negative_pairs(split: PreparedSplit, metadata: dict[str, Any], posi
 
 
 def pair_keys(split: PreparedSplit, rows: np.ndarray, num_videos: int) -> np.ndarray:
-    pairs = split.categorical[rows][:, [0, 1]].astype(np.int64, copy=False)
-    return np.unique(pairs[:, 0] * int(num_videos) + pairs[:, 1])
+    items = item_catalog_indices(split)[rows].astype(np.int64, copy=False)
+    users = split.categorical[rows, 0].astype(np.int64, copy=False)
+    return np.unique(users * int(num_videos) + items)
+
+
+def build_inbatch_candidates(user_indices: np.ndarray, positive_video_indices: np.ndarray,
+                             num_videos: int, positive_keys: np.ndarray,
+                             hard_negative_by_user: dict[int, np.ndarray], rng: np.random.Generator,
+                             hard_negative_sample_rate: float = 0.25,
+                             row_block_size: int = 256) -> tuple[np.ndarray, np.ndarray]:
+    """Build a deduplicated in-batch item set and multi-positive mask.
+
+    A batch item is positive for a user whenever its (user, item) key exists in
+    the complete known-positive training set. This masks duplicate/multi-positive
+    items instead of incorrectly treating them as negatives.
+    """
+    users = np.asarray(user_indices, dtype=np.int64)
+    positives = np.asarray(positive_video_indices, dtype=np.int32)
+    if users.ndim != 1 or positives.shape != users.shape:
+        raise ValueError("user_indices and positive_video_indices must be matching 1-D arrays")
+    if not len(users):
+        raise ValueError("Cannot build in-batch candidates from an empty batch")
+    candidates = positives.tolist()
+    if hard_negative_sample_rate > 0:
+        for user in np.unique(users):
+            hard = hard_negative_by_user.get(int(user))
+            if hard is not None and hard.size and rng.random() < hard_negative_sample_rate:
+                candidates.append(int(rng.choice(hard)))
+    candidate_ids = np.unique(np.asarray(candidates, dtype=np.int32))
+    if np.any(candidate_ids <= 0) or np.any(candidate_ids >= int(num_videos)):
+        raise ValueError("In-batch candidate indices must be within the catalogue's 1-based range")
+    positive_mask = np.zeros((len(users), len(candidate_ids)), dtype=bool)
+    # Avoid a B x C int64 temporary for the full 4096 batch: calculate known
+    # positive membership in bounded row blocks.
+    for start in range(0, len(users), max(1, row_block_size)):
+        end = min(start + max(1, row_block_size), len(users))
+        keys = users[start:end, None] * int(num_videos) + candidate_ids[None, :].astype(np.int64)
+        locations = np.searchsorted(positive_keys, keys)
+        if positive_keys.size:
+            safe = np.minimum(locations, positive_keys.size - 1)
+            positive_mask[start:end] = (locations < positive_keys.size) & (positive_keys[safe] == keys)
+    if not positive_mask.any(axis=1).all():
+        raise RuntimeError("An in-batch row has no known positive candidate; positive-pair masking is inconsistent")
+    return candidate_ids, positive_mask
 
 
 def sample_negative_video_indices(user_indices: np.ndarray, positive_video_indices: np.ndarray,
@@ -158,7 +216,9 @@ class VideoCatalog:
 
 
 def build_video_catalog(data_dir: Path, metadata: dict[str, Any]) -> VideoCatalog:
-    maps_path = data_dir / "id_maps.npz"
+    """Build a static item catalogue including metadata-only cold-start videos when available."""
+    catalog_path = data_dir / "catalog_maps.npz"
+    maps_path = catalog_path if catalog_path.exists() else data_dir / "id_maps.npz"
     if not maps_path.exists():
         raise FileNotFoundError(f"Missing {maps_path}; regenerate the processed dataset with prepare_data_v2.py")
     with np.load(maps_path, allow_pickle=False) as maps:
@@ -167,21 +227,21 @@ def build_video_catalog(data_dir: Path, metadata: dict[str, Any]) -> VideoCatalo
         duration = np.asarray(maps["video_duration_seconds_by_index"], dtype=np.float32)
         width = np.asarray(maps["video_width_by_index"], dtype=np.float32)
         height = np.asarray(maps["video_height_by_index"], dtype=np.float32)
+        if "video_model_indices_by_index" in maps.files:
+            video_model_indices = np.asarray(maps["video_model_indices_by_index"], dtype=np.int32)
+        else:
+            video_model_indices = np.arange(len(raw_ids) + 1, dtype=np.int32)
 
     n = len(raw_ids)
-    if video_cat_by_index.shape[0] != n + 1:
-        raise ValueError("Video feature map length does not match video_ids")
-    if int(metadata["categorical_sizes"][1]) != n + 1:
-        raise ValueError("Prepared video ID embedding size does not match the video ID map")
-    video_indices = np.arange(n + 1, dtype=np.int32)
-    categorical = np.column_stack([video_indices, video_cat_by_index]).astype(np.int32, copy=False)
+    if video_cat_by_index.shape[0] != n + 1 or video_model_indices.shape != (n + 1,):
+        raise ValueError("Video catalogue feature maps do not align with catalogue video IDs")
+    if np.any(video_model_indices < 0) or np.any(video_model_indices >= int(metadata["categorical_sizes"][1])):
+        raise ValueError("Catalogue contains a video-ID embedding index outside the training vocabulary")
+    categorical = np.column_stack([video_model_indices, video_cat_by_index]).astype(np.int32, copy=False)
 
     duration = duration.copy()
     fallback_ms = float(metadata.get("video_duration_fallback_ms", 0.0))
     duration[duration <= 0] = fallback_ms / 1000.0
-    # Keep retrieval item features time-independent so one cached video vector
-    # remains valid until the video's static metadata changes. Per-impression
-    # video age stays in the ranker, where it is computed from event time.
     numeric_raw = np.column_stack([
         np.log1p(np.maximum(duration, 0.0)),
         np.log1p(np.maximum(width, 0.0)),
@@ -201,8 +261,9 @@ def build_validation_queries(split: PreparedSplit, metadata: dict[str, Any], cat
                               train_positive_keys: np.ndarray, seed: int, query_count: int,
                               negative_count: int) -> tuple[np.ndarray, np.ndarray]:
     all_positive_rows, _ = positive_rows(split, metadata)
-    all_positive_rows = all_positive_rows[(split.categorical[all_positive_rows, 1] > 0) &
-                                          (split.categorical[all_positive_rows, 1] < catalog.categorical.shape[0])]
+    catalog_indices = item_catalog_indices(split)
+    all_positive_rows = all_positive_rows[(catalog_indices[all_positive_rows] > 0) &
+                                          (catalog_indices[all_positive_rows] < catalog.categorical.shape[0])]
     if all_positive_rows.size == 0:
         raise ValueError("Validation split contains no eligible positive interactions for sampled retrieval evaluation")
     rng = np.random.default_rng(seed)
@@ -210,7 +271,7 @@ def build_validation_queries(split: PreparedSplit, metadata: dict[str, Any], cat
     if rows.size > query_count:
         rows = rng.choice(rows, size=query_count, replace=False)
     users = split.categorical[rows, 0].astype(np.int64)
-    positives = split.categorical[rows, 1].astype(np.int32)
+    positives = catalog_indices[rows].astype(np.int32)
     n_videos = catalog.categorical.shape[0]
     all_validation_positive_keys = pair_keys(split, all_positive_rows, n_videos)
     all_positive = np.unique(np.concatenate([train_positive_keys, all_validation_positive_keys]))

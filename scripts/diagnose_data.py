@@ -33,6 +33,8 @@ def load_split(path: Path) -> dict[str, np.ndarray]:
             "categorical": np.asarray(data["categorical"], dtype=np.int32),
             "numeric": np.asarray(data["numeric"], dtype=np.float32),
             "labels": np.asarray(data["labels"], dtype=np.float32),
+            "catalog_video_indices": (np.asarray(data["catalog_video_indices"], dtype=np.int32)
+                                      if "catalog_video_indices" in data.files else None),
         }
 
 
@@ -46,15 +48,26 @@ def split_summary(name: str, split: dict, targets: list[str], train_counts: np.n
     positive = gain > 0
     video = cat[:, 1]
     unseen_video = video == 0
-    meta_missing = ~np.any(cat[:, VIDEO_META_COLUMNS] != 0, axis=1)
+    catalog_idx = split["catalog_video_indices"]
+    if catalog_idx is None:
+        # Legacy prepared data encoded all metadata as OOV for unseen video IDs,
+        # so metadata availability cannot be distinguished without re-preparing.
+        meta_missing = unseen_video | ~np.any(cat[:, VIDEO_META_COLUMNS] != 0, axis=1)
+        cold_start_with_metadata = np.zeros(len(video), dtype=bool)
+    else:
+        meta_missing = catalog_idx == 0
+        cold_start_with_metadata = unseen_video & (catalog_idx > 0)
     rare = (video > 0) & (train_counts[video] < 5)
     return {
         "rows": int(cat.shape[0]),
         "pct_unseen_user": pct(np.mean(cat[:, 0] == 0)),
-        "pct_unseen_video": pct(np.mean(unseen_video)),
+        "pct_unseen_video_id": pct(np.mean(unseen_video)),
+        "pct_unseen_video_with_catalogue_metadata": pct(np.mean(cold_start_with_metadata)),
         "pct_rows_with_no_video_metadata": pct(np.mean(meta_missing)),
         "pct_video_seen_fewer_than_5_times_in_train": pct(np.mean(rare)),
-        "pct_positive_rows_with_unseen_video": pct(np.mean(unseen_video[positive])) if positive.any() else None,
+        "pct_positive_rows_with_unseen_video_id": pct(np.mean(unseen_video[positive])) if positive.any() else None,
+        "pct_positive_rows_with_unseen_video_and_catalogue_metadata": pct(np.mean(cold_start_with_metadata[positive])) if positive.any() else None,
+        "pct_positive_rows_without_catalogue_metadata": pct(np.mean(meta_missing[positive])) if positive.any() else None,
         "pct_positive_rows_with_rare_video": pct(np.mean(rare[positive])) if positive.any() else None,
         "event_rates_pct": {t: pct(labels[:, i].mean()) for i, t in enumerate(targets)},
     }
@@ -129,16 +142,20 @@ def main() -> int:
     for b in range(10):
         mask = bucket == b
         rows.append({"duration_decile": b + 1,
-                     **{n: pct(train["labels"][mask, targets.index(n)].mean()) for n in names}})
+                     **{n: pct(train["labels"][mask, targets.index(n)].mean()) if mask.any() else 0.0
+                        for n in names}})
     report["event_rate_pct_by_duration_decile"] = rows
 
     # ---- readable summary
     print("\n=== Cold start (rows using IDs the model never trained on) ===")
     for name in ("validation", "test"):
         s = report[name]
-        print(f"{name:<11} unseen video {s['pct_unseen_video']:>6}% | no video metadata {s['pct_rows_with_no_video_metadata']:>6}% | "
-              f"video seen <5x in train {s['pct_video_seen_fewer_than_5_times_in_train']:>6}% | "
-              f"positives on unseen video {s['pct_positive_rows_with_unseen_video']}%")
+        print(f"{name:<11} unseen video ID {s['pct_unseen_video_id']:>6}% | unseen but metadata available "
+              f"{s['pct_unseen_video_with_catalogue_metadata']:>6}% | no video metadata {s['pct_rows_with_no_video_metadata']:>6}% | "
+              f"video seen <5x in train {s['pct_video_seen_fewer_than_5_times_in_train']:>6}%")
+        print(f"  positive rows: unseen ID={s['pct_positive_rows_with_unseen_video_id']}%, "
+              f"unseen ID + metadata={s['pct_positive_rows_with_unseen_video_and_catalogue_metadata']}%, "
+              f"no catalogue metadata={s['pct_positive_rows_without_catalogue_metadata']}%")
     print("\n=== Popularity concentration ===")
     for key, value in report["concentration"].items():
         print(f"  {key}: {value}")

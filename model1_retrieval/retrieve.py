@@ -43,6 +43,10 @@ def main() -> int:
     schema_fingerprint = data_fingerprint(data_dir)
     model_checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
     index_metadata = json.loads((index_dir / "index_metadata.json").read_text(encoding="utf-8"))
+    catalog_map_path = data_dir / "catalog_maps.npz"
+    current_catalog_hash = sha256_file(catalog_map_path) if catalog_map_path.exists() else None
+    if index_metadata.get("catalog_maps_sha256") != current_catalog_hash:
+        raise ValueError("The retrieval index was built from a different video catalogue map. Rebuild the index.")
     if index_metadata.get("dataset") != metadata.get("dataset") or model_checkpoint.get("dataset") != metadata.get("dataset"):
         raise ValueError("Model, index, and prepared dataset do not match")
     if index_metadata.get("data_fingerprint") != schema_fingerprint or model_checkpoint.get("data_fingerprint") != schema_fingerprint:

@@ -7,7 +7,8 @@ import numpy as np
 import torch
 
 from model1_retrieval.data import (
-    PreparedSplit, VideoCatalog, build_validation_queries, positive_rows, sample_negative_video_indices,
+    PreparedSplit, VideoCatalog, build_inbatch_candidates, build_validation_queries,
+    build_video_catalog, positive_rows, sample_negative_video_indices,
 )
 from model1_retrieval.model import TwoTowerRetrieval
 
@@ -86,6 +87,71 @@ class RetrievalCoreTests(unittest.TestCase):
         )
         np.testing.assert_array_equal(rows_a, rows_b)
         np.testing.assert_array_equal(candidates_a, candidates_b)
+
+
+    def test_metadata_backed_oov_video_is_eligible_for_retrieval(self) -> None:
+        categorical = np.zeros((1, 36), dtype=np.int32)
+        categorical[0, 0] = 1
+        categorical[0, 1] = 0  # not present in training video-ID vocabulary
+        labels = np.zeros((1, 10), dtype=np.float32)
+        labels[0, 8] = 1.0
+        split = PreparedSplit(
+            categorical, np.zeros((1, 10), dtype=np.float32), labels,
+            catalog_video_indices=np.asarray([2], dtype=np.int32),
+        )
+        rows, _ = positive_rows(split, {"binary_targets": TARGETS})
+        np.testing.assert_array_equal(rows, np.asarray([0]))
+
+    def test_inbatch_candidates_mask_all_known_positives_for_same_user(self) -> None:
+        users = np.asarray([1, 1, 2], dtype=np.int64)
+        positive_items = np.asarray([2, 5, 3], dtype=np.int32)
+        n_items = 12
+        positive_keys = np.unique(np.asarray([
+            1 * n_items + 2, 1 * n_items + 5, 2 * n_items + 3,
+        ], dtype=np.int64))
+        hard = {1: np.asarray([8], dtype=np.int32), 2: np.asarray([9], dtype=np.int32)}
+        candidates, positive_mask = build_inbatch_candidates(
+            users, positive_items, n_items, positive_keys, hard,
+            np.random.default_rng(7), hard_negative_sample_rate=1.0,
+        )
+        self.assertEqual(candidates.tolist(), [2, 3, 5, 8, 9])
+        # User 1 has two known positive items in this batch; both must be
+        # numerator positives, not false negatives for one another.
+        row0 = dict(zip(candidates.tolist(), positive_mask[0].tolist()))
+        self.assertTrue(row0[2])
+        self.assertTrue(row0[5])
+        self.assertFalse(row0[3])
+        self.assertFalse(row0[8])
+        self.assertTrue(positive_mask[2, np.where(candidates == 3)[0][0]])
+
+    def test_build_video_catalog_keeps_metadata_when_video_id_embedding_is_oov(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            np.savez_compressed(
+                root / "catalog_maps.npz",
+                video_ids=np.asarray([100, 200], dtype=np.int64),
+                video_model_indices_by_index=np.asarray([0, 0, 2], dtype=np.int32),
+                video_cat_by_index=np.asarray([[0] * 7, [3, 0, 0, 0, 0, 0, 0], [4, 0, 0, 0, 0, 0, 0]], dtype=np.int32),
+                video_duration_seconds_by_index=np.asarray([0, 10, 20], dtype=np.float32),
+                video_width_by_index=np.asarray([0, 720, 1080], dtype=np.float32),
+                video_height_by_index=np.asarray([0, 1280, 1920], dtype=np.float32),
+                video_upload_ms_by_index=np.asarray([0, 1, 2], dtype=np.float64),
+            )
+            metadata = {
+                "categorical_sizes": [2, 4],
+                "numeric_mean": [0.0] * 10,
+                "numeric_std": [1.0] * 10,
+                "video_duration_fallback_ms": 0.0,
+            }
+            catalog = build_video_catalog(root, metadata)
+            self.assertEqual(catalog.raw_ids.tolist(), [100, 200])
+            self.assertEqual(int(catalog.categorical[1, 0]), 0)
+            self.assertEqual(int(catalog.categorical[1, 1]), 3)
+            self.assertEqual(int(catalog.categorical[2, 0]), 2)
 
     def test_negative_sampler_rejects_known_positive_pairs_and_uses_hate_pair(self) -> None:
         users = np.asarray([1, 2], dtype=np.int64)

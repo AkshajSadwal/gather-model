@@ -41,6 +41,8 @@ def main() -> int:
     metadata = load_metadata(data_dir)
     schema_fingerprint = data_fingerprint(data_dir)
     catalog = build_video_catalog(data_dir, metadata)
+    catalog_map_path = data_dir / "catalog_maps.npz"
+    catalog_maps_sha256 = sha256_file(catalog_map_path) if catalog_map_path.exists() else None
     device = torch.device("cuda" if torch.cuda.is_available() else
                           "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu")
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
@@ -81,6 +83,9 @@ def main() -> int:
     index_metadata = {
         "dataset": metadata.get("dataset"),
         "data_fingerprint": schema_fingerprint,
+        "catalog_maps_sha256": catalog_maps_sha256,
+        "catalogue_type": "metadata_backed_with_oov_video_id_embeddings" if catalog_maps_sha256 else "training_video_ids_only",
+        "cold_start_item_count": int(np.count_nonzero(catalog.categorical[1:, 0] == 0)),
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "model_path": str(model_path),
         "checkpoint_sha256": sha256_file(model_path),

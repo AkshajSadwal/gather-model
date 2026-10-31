@@ -9,6 +9,10 @@ The retrieval implementation is an offline KuaiRand prototype built against the 
 
 The training code automatically selects CUDA when available, then Apple Silicon MPS, then CPU.
 
+## Project history and issue tracking
+
+See [`PROJECT_ISSUES_AND_RESOLUTIONS.md`](PROJECT_ISSUES_AND_RESOLUTIONS.md) for the running record of previous experiments, problems, fixes, current limitations, and next steps. Update this file in every future patch.
+
 ## Project structure
 
 Run commands from the project root: `reels-recommender-m4/`.

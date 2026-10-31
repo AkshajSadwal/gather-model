@@ -1,0 +1,146 @@
+{
+  "model_path": "artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt",
+  "index_dir": "data/indexes/retrieval/baseline_original",
+  "split": "validation",
+  "checkpoint_best_epoch": 10,
+  "catalogue_size": 3929859,
+  "eligible_positive_rows": 243623,
+  "pct_eligible_positives_on_video_unseen_in_training": 53.1386609638663,
+  "queries": 5000,
+  "pct_shuffled_queries_with_same_user": 0.52,
+  "results": [
+    {
+      "method": "model",
+      "queries": 5000,
+      "median_rank": 254305.0,
+      "recall@20": {
+        "value": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "chance": 5.089241115266476e-06
+      },
+      "recall@100": {
+        "value": 0.0006,
+        "ci95": [
+          0.0,
+          0.0014
+        ],
+        "chance": 2.5446205576332382e-05
+      },
+      "recall@500": {
+        "value": 0.0032,
+        "ci95": [
+          0.0018,
+          0.0048
+        ],
+        "chance": 0.0001272310278816619
+      },
+      "recall@1000": {
+        "value": 0.0054,
+        "ci95": [
+          0.0036,
+          0.007404999999999996
+        ],
+        "chance": 0.0002544620557633238
+      },
+      "mrr": {
+        "value": 5.521598885699612e-05,
+        "ci95": [
+          3.8876674522970124e-05,
+          7.630679423850813e-05
+        ]
+      }
+    },
+    {
+      "method": "shuffled users",
+      "queries": 5000,
+      "median_rank": 683467.5,
+      "recall@20": {
+        "value": 0.0002,
+        "ci95": [
+          0.0,
+          0.0006
+        ],
+        "chance": 5.089241115266476e-06
+      },
+      "recall@100": {
+        "value": 0.0004,
+        "ci95": [
+          0.0,
+          0.001
+        ],
+        "chance": 2.5446205576332382e-05
+      },
+      "recall@500": {
+        "value": 0.0012,
+        "ci95": [
+          0.0004,
+          0.0022
+        ],
+        "chance": 0.0001272310278816619
+      },
+      "recall@1000": {
+        "value": 0.0028,
+        "ci95": [
+          0.0014,
+          0.0044
+        ],
+        "chance": 0.0002544620557633238
+      },
+      "mrr": {
+        "value": 6.0665168793592516e-05,
+        "ci95": [
+          1.3986080191879634e-05,
+          0.00014617566879980093
+        ]
+      }
+    },
+    {
+      "method": "popularity",
+      "queries": 5000,
+      "median_rank": 308735.5,
+      "recall@20": {
+        "value": 0.0004,
+        "ci95": [
+          0.0,
+          0.001
+        ],
+        "chance": 5.089241115266476e-06
+      },
+      "recall@100": {
+        "value": 0.0016,
+        "ci95": [
+          0.0006,
+          0.0028
+        ],
+        "chance": 2.5446205576332382e-05
+      },
+      "recall@500": {
+        "value": 0.0086,
+        "ci95": [
+          0.0062,
+          0.0112
+        ],
+        "chance": 0.0001272310278816619
+      },
+      "recall@1000": {
+        "value": 0.0148,
+        "ci95": [
+          0.0114,
+          0.0186
+        ],
+        "chance": 0.0002544620557633238
+      },
+      "mrr": {
+        "value": 0.0001204373201009532,
+        "ci95": [
+          8.301983429349696e-05,
+          0.00017012009015503638
+        ]
+      }
+    }
+  ],
+  "elapsed_seconds": 25.55364733300121
+}

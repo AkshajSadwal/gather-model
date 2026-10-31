@@ -27,7 +27,12 @@ def prepared_data_fingerprint(data_dir: Path) -> str:
     digest = hashlib.sha256()
     schema = schema_fingerprint(data_dir)
     digest.update(schema.encode("ascii"))
-    for filename in ("train.npz", "validation.npz", "test.npz"):
+    for filename in ("train.npz", "validation.npz", "test.npz", "catalog_maps.npz"):
+        path = data_dir / filename
+        # catalog_maps.npz was introduced for metadata-backed cold-start items.
+        # Older prepared datasets remain readable and fingerprint consistently.
+        if filename == "catalog_maps.npz" and not path.exists():
+            continue
         digest.update(filename.encode("utf-8"))
-        _hash_file(digest, data_dir / filename)
+        _hash_file(digest, path)
     return digest.hexdigest()

@@ -27,7 +27,9 @@ from model1_retrieval.data import (
     PreparedSplit,
     build_validation_queries,
     build_video_catalog,
+    build_inbatch_candidates,
     data_fingerprint,
+    item_catalog_indices,
     explicit_negative_pairs,
     load_metadata,
     load_split,
@@ -45,6 +47,18 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+
+
+def combine_hybrid_losses(pairwise_per_row: torch.Tensor, inbatch_per_row: torch.Tensor,
+                          inbatch_weight: float) -> torch.Tensor:
+    """Blend the original pairwise objective with a small in-batch auxiliary loss."""
+    if pairwise_per_row.shape != inbatch_per_row.shape:
+        raise ValueError("pairwise and in-batch per-row losses must have identical shapes")
+    if not 0.0 < float(inbatch_weight) < 1.0:
+        raise ValueError("inbatch_weight must be strictly between 0 and 1")
+    return (1.0 - float(inbatch_weight)) * pairwise_per_row + float(inbatch_weight) * inbatch_per_row
 
 
 def choose_device() -> torch.device:
@@ -152,7 +166,15 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--max-positive-rows", type=int, default=0, help="Optional limit for a short smoke test; 0 uses every eligible positive row")
     parser.add_argument("--negatives-per-positive", type=int, default=2)
+    parser.add_argument("--negative-mode", choices=["sampled", "in-batch", "hybrid"], default="sampled",
+                        help="sampled=original pairwise loss; in-batch=multi-positive contrastive only; hybrid=pairwise loss plus a small in-batch auxiliary loss")
+    parser.add_argument("--inbatch-loss-weight", type=float, default=0.05,
+                        help="For hybrid mode, blend this fraction of multi-positive in-batch loss with the original pairwise loss")
     parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--lr-scheduler", choices=["constant", "cosine"], default="constant",
+                        help="Optional cosine decay from --learning-rate to --min-learning-rate")
+    parser.add_argument("--min-learning-rate", type=float, default=0.0001,
+                        help="Cosine scheduler floor; used only when --lr-scheduler cosine")
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--temperature", type=float, default=0.10)
     parser.add_argument("--hard-negative-sample-rate", type=float, default=0.25)
@@ -178,6 +200,8 @@ def main() -> int:
         parser.error("epochs, batch size, negatives, and evaluation sizes must be positive")
     if args.seed < 0 or args.eval_seed < 0 or args.cpu_threads < 0 or args.temperature <= 0:
         parser.error("training/evaluation seeds and CPU threads must be nonnegative; temperature must be positive")
+    if args.learning_rate <= 0 or args.min_learning_rate < 0 or args.min_learning_rate > args.learning_rate:
+        parser.error("learning rates must satisfy learning_rate > 0 and 0 <= min_learning_rate <= learning_rate")
     if args.resume and args.init_from is not None:
         parser.error("Use either --resume or --init-from, not both")
     if args.init_from is not None and not args.init_from.is_file():
@@ -186,6 +210,10 @@ def main() -> int:
         parser.error("--max-positive-rows cannot be negative")
     if not 0 <= args.hard_negative_sample_rate <= 1:
         parser.error("--hard-negative-sample-rate must be between 0 and 1")
+    if not 0.0 <= args.inbatch_loss_weight <= 1.0:
+        parser.error("--inbatch-loss-weight must be between 0 and 1")
+    if args.negative_mode == "hybrid" and not 0.0 < args.inbatch_loss_weight < 1.0:
+        parser.error("hybrid mode requires --inbatch-loss-weight strictly between 0 and 1")
 
     seed_everything(args.seed)
     rng = np.random.default_rng(args.seed)
@@ -242,9 +270,21 @@ def main() -> int:
         print(f"Device: {device}")
     model = TwoTowerRetrieval(metadata).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    scheduler = None
+    if args.lr_scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(1, args.epochs), eta_min=args.min_learning_rate
+        )
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    if scheduler is not None:
+        print(f"Learning-rate schedule: cosine {args.learning_rate:.6g} -> {args.min_learning_rate:.6g} over {args.epochs} epochs")
+    else:
+        print(f"Learning-rate schedule: constant {args.learning_rate:.6g}")
     report_mps_memory(device, "after model initialization")
-    print(f"Batch size: {args.batch_size}; random negatives per positive: {args.negatives_per_positive}")
+    print(f"Batch size: {args.batch_size}; negative mode: {args.negative_mode}; "
+          f"random negatives per positive: {args.negatives_per_positive if args.negative_mode in ('sampled', 'hybrid') else 'not used'}")
+    if args.negative_mode == "hybrid":
+        print(f"Hybrid loss: {(1.0 - args.inbatch_loss_weight):.0%} pairwise + {args.inbatch_loss_weight:.0%} in-batch auxiliary")
 
     best_path = out / "best_model.pt"
     latest_path = out / "latest_checkpoint.pt"
@@ -269,9 +309,13 @@ def main() -> int:
         if saved.get("prepared_data_fingerprint") != prepared_fingerprint:
             raise ValueError("Prepared train/validation/test arrays differ from the checkpoint; start a new run instead of resuming")
         expected_resume_config = {
+            "epochs": args.epochs,
             "batch_size": args.batch_size,
             "negatives_per_positive": args.negatives_per_positive,
+            "negative_mode": args.negative_mode,
             "learning_rate": args.learning_rate,
+            "lr_scheduler": args.lr_scheduler,
+            "min_learning_rate": args.min_learning_rate,
             "weight_decay": args.weight_decay,
             "temperature": args.temperature,
             "hard_negative_sample_rate": args.hard_negative_sample_rate,
@@ -284,6 +328,8 @@ def main() -> int:
             "min_delta": args.min_delta,
             "cpu_threads": args.cpu_threads,
         }
+        if args.negative_mode == "hybrid":
+            expected_resume_config["inbatch_loss_weight"] = args.inbatch_loss_weight
         saved_resume_config = saved.get("resume_config")
         if saved_resume_config is not None and saved_resume_config != expected_resume_config:
             raise ValueError(
@@ -292,8 +338,13 @@ def main() -> int:
             )
         model.load_state_dict(saved["model_state_dict"])
         optimizer.load_state_dict(saved["optimizer_state_dict"])
+        if scheduler is not None:
+            if "scheduler_state_dict" not in saved:
+                raise ValueError("Cannot resume cosine-scheduled training: checkpoint has no scheduler state")
+            scheduler.load_state_dict(saved["scheduler_state_dict"])
         for group in optimizer.param_groups:
-            group["lr"] = args.learning_rate
+            if scheduler is None:
+                group["lr"] = args.learning_rate
         start_epoch = int(saved["epoch"]) + 1
         best_epoch = int(saved.get("best_epoch", 0))
         best_score = float(saved.get("best_score", -float("inf")))
@@ -308,14 +359,24 @@ def main() -> int:
             raise ValueError("The --init-from checkpoint dataset does not match the selected prepared data")
         if saved.get("data_fingerprint") != schema_fingerprint:
             raise ValueError("The --init-from checkpoint metadata/ID-map schema does not match")
-        if saved.get("prepared_data_fingerprint") != prepared_fingerprint:
-            raise ValueError("The --init-from checkpoint was trained on different prepared train/validation/test arrays")
+        # Warm-starting across a prepared-data revision is allowed only when the
+        # feature schema and train ID maps still match. This patch keeps id_maps.npz
+        # unchanged and adds a separate catalogue map for metadata-backed cold-start items.
+        # Exact resume remains strict about prepared_data_fingerprint.
+        if saved.get("categorical_sizes") != metadata["categorical_sizes"]:
+            raise ValueError("The --init-from checkpoint categorical embedding sizes differ from the prepared data")
         model.load_state_dict(saved["model_state_dict"])
         source_metrics = saved.get("best_validation_metrics", {})
-        baseline_score = float(source_metrics.get("sampled_recall_at_100", saved.get("best_score", float("nan"))))
-        if not np.isfinite(baseline_score):
-            raise ValueError("The --init-from checkpoint has no finite sampled Recall@100 baseline")
         source_best_epoch = int(saved.get("best_epoch", 0))
+        # Re-evaluate the imported weights against THIS prepared version's fixed
+        # validation queries and expanded catalogue. Do not compare new epochs
+        # with a sampled metric produced by the old catalogue/data version.
+        baseline_metrics = evaluate_sampled_recall(
+            model, validation, eval_rows, eval_candidates, catalog, device, args.eval_query_chunk_size
+        )
+        baseline_score = float(baseline_metrics.get("sampled_recall_at_100", float("nan")))
+        if not np.isfinite(baseline_score):
+            raise ValueError("The --init-from checkpoint could not produce a finite current-data Recall@100 baseline")
         best_score = baseline_score
         best_epoch = 0  # epoch 0 denotes the imported starting checkpoint in this fine-tune run
         no_improve = 0
@@ -325,18 +386,28 @@ def main() -> int:
             "source_best_epoch": source_best_epoch,
             "warm_start_source": str(args.init_from.resolve()),
             "warm_start_baseline_score": baseline_score,
+            "best_score": baseline_score,
+            "best_validation_metrics": baseline_metrics,
+            "prepared_data_fingerprint": prepared_fingerprint,
             "fine_tune_seed": args.seed,
+            "source_negative_mode": saved.get("negative_mode", "sampled"),
+            "fine_tune_negative_mode": args.negative_mode,
         })
         atomic_save(baseline_payload, best_path)
         warm_start_info = {
             "source_checkpoint": str(args.init_from.resolve()),
             "source_best_epoch": source_best_epoch,
+            "source_validation_metrics": source_metrics,
+            "current_data_baseline_metrics": baseline_metrics,
+            "source_negative_mode": saved.get("negative_mode", "sampled"),
+            "fine_tune_negative_mode": args.negative_mode,
             "baseline_sampled_recall_at_100": baseline_score,
             "optimizer_state": "reset; fresh AdamW state for fine-tuning",
         }
         print(
             f"Warm-started from best checkpoint (source epoch {source_best_epoch}); "
-            f"baseline sampled Recall@100={baseline_score:.4f}. Optimizer state reset."
+            f"re-evaluated current-data baseline sampled Recall@100={baseline_score:.4f}. "
+            "Optimizer state reset."
         )
     else:
         warm_start_info = None
@@ -351,7 +422,14 @@ def main() -> int:
         "runtime": {"python": platform.python_version(), "platform": platform.platform(), "torch": torch.__version__, "numpy": np.__version__, "device": str(device)},
         "positive_event_weights": {"is_click": 0.25, "is_like": 1.0, "is_follow": 1.5, "is_comment": 1.25, "is_forward": 1.5, "long_view": 2.0, "is_profile_enter": 0.75, "complete_view": 2.0},
         "short_view_negative_weight": 0.5,
-        "negative_sampling": "two random catalogue items per positive by default; known training positives are rejected; explicit is_hate and short_view pairs can be sampled as hard negatives; unobserved items are not confirmed dislikes",
+        "negative_sampling": (
+            "masked multi-positive in-batch contrastive candidates plus optional per-user explicit hate/short-view hard candidates"
+            if args.negative_mode == "in-batch" else
+            "hybrid: original pairwise sampled catalogue negatives plus masked multi-positive in-batch auxiliary candidates"
+            if args.negative_mode == "hybrid" else
+            "two random catalogue items per positive by default; known training positives are rejected; explicit is_hate and short_view pairs can be sampled as hard negatives; unobserved items are not confirmed dislikes"
+        ),
+        "inbatch_loss_weight": args.inbatch_loss_weight if args.negative_mode == "hybrid" else None,
         "eval_seed": args.eval_seed,
         "warm_start": warm_start_info,
         "validation_protocol": f"sampled retrieval: up to {args.eval_queries} positive queries, each ranked against {args.eval_negatives} sampled catalogue negatives using fixed eval_seed={args.eval_seed}; not full-catalogue recall",
@@ -364,6 +442,8 @@ def main() -> int:
             model.train()
             permutation = rng.permutation(positive_idx)
             loss_total = 0.0
+            pairwise_loss_total = 0.0
+            inbatch_loss_total = 0.0
             pairs_seen = 0
             batch_count = math.ceil(len(permutation) / args.batch_size)
             progress = tqdm(range(0, len(permutation), args.batch_size), total=batch_count,
@@ -373,31 +453,93 @@ def main() -> int:
                 cat = train.categorical[row_ids]
                 num = train.numeric[row_ids]
                 u_idx = cat[:, 0].astype(np.int64, copy=False)
-                pos_v_idx = cat[:, 1].astype(np.int32, copy=False)
-                neg_v_idx = sample_negative_video_indices(
-                    u_idx, pos_v_idx, n_video_indices, train_positive_keys,
-                    hard_negatives_by_user, rng, args.negatives_per_positive, args.hard_negative_sample_rate,
-                )
+                pos_v_idx = item_catalog_indices(train)[row_ids].astype(np.int32, copy=False)
 
                 u_cat = torch.from_numpy(np.ascontiguousarray(cat[:, TwoTowerRetrieval.USER_COLUMNS])).to(device)
                 u_num = torch.from_numpy(np.ascontiguousarray(num[:, TwoTowerRetrieval.USER_NUMERIC_COLUMNS])).to(device)
-                pos_cat = torch.from_numpy(np.ascontiguousarray(catalog.categorical[pos_v_idx][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
-                pos_num = torch.from_numpy(np.ascontiguousarray(catalog.numeric[pos_v_idx][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
-                neg_flat = neg_v_idx.reshape(-1)
-                neg_cat = torch.from_numpy(np.ascontiguousarray(catalog.categorical[neg_flat][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
-                neg_num = torch.from_numpy(np.ascontiguousarray(catalog.numeric[neg_flat][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
                 weights = torch.from_numpy(np.ascontiguousarray(
                     positive_weights[np.searchsorted(positive_idx, row_ids)]
                 )).to(device)
 
                 optimizer.zero_grad(set_to_none=True)
                 user_vec = model.user_tower(u_cat, u_num)
-                positive_vec = model.video_tower(pos_cat, pos_num)
-                negative_vec = model.video_tower(neg_cat, neg_num).view(len(row_ids), args.negatives_per_positive, -1)
-                positive_score = torch.sum(user_vec * positive_vec, dim=1).unsqueeze(1)
-                negative_score = torch.sum(user_vec.unsqueeze(1) * negative_vec, dim=2)
-                pairwise_loss = F.softplus((negative_score - positive_score) / args.temperature).mean(dim=1)
-                loss = torch.sum(pairwise_loss * weights) / weights.sum().clamp(min=1e-6)
+                if args.negative_mode in ("sampled", "hybrid"):
+                    neg_v_idx = sample_negative_video_indices(
+                        u_idx, pos_v_idx, n_video_indices, train_positive_keys,
+                        hard_negatives_by_user, rng, args.negatives_per_positive, args.hard_negative_sample_rate,
+                    )
+                    neg_flat = neg_v_idx.reshape(-1)
+                    neg_cat = torch.from_numpy(np.ascontiguousarray(
+                        catalog.categorical[neg_flat][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
+                    neg_num = torch.from_numpy(np.ascontiguousarray(
+                        catalog.numeric[neg_flat][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
+
+                    if args.negative_mode == "sampled":
+                        pos_cat = torch.from_numpy(np.ascontiguousarray(
+                            catalog.categorical[pos_v_idx][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
+                        pos_num = torch.from_numpy(np.ascontiguousarray(
+                            catalog.numeric[pos_v_idx][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
+                        positive_vec = model.video_tower(pos_cat, pos_num)
+                    else:
+                        # Hybrid mode reuses the in-batch candidate encoding for positive
+                        # vectors, avoiding a second video-tower pass for positive items.
+                        candidate_ids, positive_mask = build_inbatch_candidates(
+                            u_idx, pos_v_idx, n_video_indices, train_positive_keys,
+                            hard_negatives_by_user, rng, args.hard_negative_sample_rate,
+                        )
+                        candidate_cat = torch.from_numpy(np.ascontiguousarray(
+                            catalog.categorical[candidate_ids][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
+                        candidate_num = torch.from_numpy(np.ascontiguousarray(
+                            catalog.numeric[candidate_ids][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
+                        candidate_vec = model.video_tower(candidate_cat, candidate_num)
+                        positive_columns = np.searchsorted(candidate_ids, pos_v_idx)
+                        positive_columns_tensor = torch.from_numpy(positive_columns.astype(np.int64, copy=False)).to(device)
+                        positive_vec = candidate_vec[positive_columns_tensor]
+
+                    negative_vec = model.video_tower(neg_cat, neg_num).view(len(row_ids), args.negatives_per_positive, -1)
+                    positive_score = torch.sum(user_vec * positive_vec, dim=1).unsqueeze(1)
+                    negative_score = torch.sum(user_vec.unsqueeze(1) * negative_vec, dim=2)
+                    pairwise_per_row = F.softplus((negative_score - positive_score) / args.temperature).mean(dim=1)
+                    pairwise_component = torch.sum(pairwise_per_row * weights) / weights.sum().clamp(min=1e-6)
+                    pairwise_loss_total += float(pairwise_component.item()) * len(row_ids)
+
+                    if args.negative_mode == "sampled":
+                        per_row_loss = pairwise_per_row
+                    else:
+                        logits = torch.matmul(user_vec, candidate_vec.transpose(0, 1)) / args.temperature
+                        positive_mask_tensor = torch.from_numpy(positive_mask).to(device=device, dtype=torch.bool)
+                        log_denominator = torch.logsumexp(logits, dim=1)
+                        log_numerator = torch.logsumexp(
+                            logits.masked_fill(~positive_mask_tensor, -torch.inf), dim=1)
+                        inbatch_per_row = log_denominator - log_numerator
+                        inbatch_component = torch.sum(inbatch_per_row * weights) / weights.sum().clamp(min=1e-6)
+                        inbatch_loss_total += float(inbatch_component.item()) * len(row_ids)
+                        # Preserve the original pairwise objective as the main signal.
+                        # In-batch contrastive learning is a small auxiliary objective,
+                        # reducing catastrophic forgetting when warm-starting old weights.
+                        per_row_loss = combine_hybrid_losses(
+                            pairwise_per_row, inbatch_per_row, args.inbatch_loss_weight
+                        )
+                else:
+                    candidate_ids, positive_mask = build_inbatch_candidates(
+                        u_idx, pos_v_idx, n_video_indices, train_positive_keys,
+                        hard_negatives_by_user, rng, args.hard_negative_sample_rate,
+                    )
+                    candidate_cat = torch.from_numpy(np.ascontiguousarray(
+                        catalog.categorical[candidate_ids][:, TwoTowerRetrieval.VIDEO_CATALOG_COLUMNS])).to(device)
+                    candidate_num = torch.from_numpy(np.ascontiguousarray(
+                        catalog.numeric[candidate_ids][:, TwoTowerRetrieval.VIDEO_CATALOG_NUMERIC_COLUMNS])).to(device)
+                    candidate_vec = model.video_tower(candidate_cat, candidate_num)
+                    logits = torch.matmul(user_vec, candidate_vec.transpose(0, 1)) / args.temperature
+                    positive_mask_tensor = torch.from_numpy(positive_mask).to(device=device, dtype=torch.bool)
+                    log_denominator = torch.logsumexp(logits, dim=1)
+                    log_numerator = torch.logsumexp(
+                        logits.masked_fill(~positive_mask_tensor, -torch.inf), dim=1)
+                    per_row_loss = log_denominator - log_numerator
+                    inbatch_component = torch.sum(per_row_loss * weights) / weights.sum().clamp(min=1e-6)
+                    inbatch_loss_total += float(inbatch_component.item()) * len(row_ids)
+
+                loss = torch.sum(per_row_loss * weights) / weights.sum().clamp(min=1e-6)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                 optimizer.step()
@@ -405,15 +547,26 @@ def main() -> int:
                 n = len(row_ids)
                 loss_total += float(loss.item()) * n
                 pairs_seen += n
-                progress.set_postfix(loss=f"{loss.item():.4f}")
+                if args.negative_mode == "hybrid":
+                    progress.set_postfix(
+                        loss=f"{loss.item():.4f}",
+                        pair=f"{pairwise_component.item():.3f}",
+                        inbatch=f"{inbatch_component.item():.3f}",
+                    )
+                else:
+                    progress.set_postfix(loss=f"{loss.item():.4f}")
 
             train_loss = loss_total / max(pairs_seen, 1)
             val_metrics = evaluate_sampled_recall(model, validation, eval_rows, eval_candidates,
                                                   catalog, device, args.eval_query_chunk_size)
             report_mps_memory(device, f"after epoch {epoch} validation")
             epoch_seconds = time.perf_counter() - epoch_start
+            current_learning_rate = float(optimizer.param_groups[0]["lr"])
             record = {"epoch": epoch, "train_loss": train_loss, "epoch_seconds": epoch_seconds,
-                      "validation": val_metrics}
+                      "learning_rate": current_learning_rate, "validation": val_metrics}
+            if args.negative_mode == "hybrid":
+                record["pairwise_loss"] = pairwise_loss_total / max(pairs_seen, 1)
+                record["inbatch_loss"] = inbatch_loss_total / max(pairs_seen, 1)
             history.append(record)
             print(f"\nEpoch {epoch}: loss={train_loss:.5f}, sampled_recall@20={val_metrics['sampled_recall_at_20']:.4f}, "
                   f"sampled_recall@100={val_metrics['sampled_recall_at_100']:.4f}, "
@@ -433,14 +586,18 @@ def main() -> int:
                     "video_embedding_dims": model.video_embedding_dims,
                     "embedding_dim": 128, "seed": args.seed, "best_epoch": epoch,
                     "best_validation_metrics": val_metrics, "model_version": 1,
+                    "negative_mode": args.negative_mode, "temperature": args.temperature,
+                    "inbatch_loss_weight": args.inbatch_loss_weight,
                     "architecture": "two_tower_512_256_128",
                 }, best_path)
                 print(f"Saved best retrieval checkpoint: {best_path}")
             else:
                 no_improve += 1
 
+            if scheduler is not None:
+                scheduler.step()
             write_json(history, history_path)
-            atomic_save({
+            checkpoint_payload = {
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "dataset": metadata.get("dataset"), "data_fingerprint": schema_fingerprint,
                 "prepared_data_fingerprint": prepared_fingerprint,
@@ -448,9 +605,14 @@ def main() -> int:
                 "best_epoch": best_epoch, "best_score": best_score, "no_improve": no_improve,
                 "history": history, "numpy_rng_state": rng.bit_generator.state,
                 "resume_config": {
+                    "epochs": args.epochs,
                     "batch_size": args.batch_size,
                     "negatives_per_positive": args.negatives_per_positive,
+                    "negative_mode": args.negative_mode,
+                    **({"inbatch_loss_weight": args.inbatch_loss_weight} if args.negative_mode == "hybrid" else {}),
                     "learning_rate": args.learning_rate,
+                    "lr_scheduler": args.lr_scheduler,
+                    "min_learning_rate": args.min_learning_rate,
                     "weight_decay": args.weight_decay,
                     "temperature": args.temperature,
                     "hard_negative_sample_rate": args.hard_negative_sample_rate,
@@ -463,7 +625,10 @@ def main() -> int:
                     "min_delta": args.min_delta,
                 },
                 **capture_device_rng(device),
-            }, latest_path)
+            }
+            if scheduler is not None:
+                checkpoint_payload["scheduler_state_dict"] = scheduler.state_dict()
+            atomic_save(checkpoint_payload, latest_path)
             if args.early_stopping_patience and no_improve >= args.early_stopping_patience:
                 print(f"Early stopping after {no_improve} epochs without sampled Recall@100 improvement")
                 break
