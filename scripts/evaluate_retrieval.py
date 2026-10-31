@@ -34,7 +34,7 @@ import numpy as np
 import torch
 
 from common.eval_metrics import (
-    bootstrap_mean_ci, expected_rank_from_scores, recall_hits, reciprocal_ranks, relevance_gains,
+    cluster_bootstrap_mean_ci, expected_rank_from_scores, recall_hits, reciprocal_ranks, relevance_gains,
 )
 from common.retrieval_eval import rank_against_catalog
 from model1_retrieval.data import data_fingerprint, item_catalog_indices, load_metadata, load_split
@@ -57,13 +57,24 @@ def choose_device() -> torch.device:
     return torch.device("cpu")
 
 
-def summarise(name: str, ranks: np.ndarray, ks: list[int], catalogue_size: int, n_boot: int, seed: int) -> dict:
-    out: dict = {"method": name, "queries": int(ranks.size), "median_rank": float(np.median(ranks))}
+def summarise(name: str, ranks: np.ndarray, users: np.ndarray, ks: list[int],
+              catalogue_size: int, n_boot: int, seed: int) -> dict:
+    out: dict = {
+        "method": name, "queries": int(ranks.size),
+        "unique_users": int(np.unique(users).size),
+        "median_rank": float(np.median(ranks)),
+        "confidence_interval_method": "query-weighted user-cluster bootstrap",
+    }
     for k in ks:
-        mean, lo, hi = bootstrap_mean_ci(recall_hits(ranks, k), n_boot=n_boot, seed=seed)
-        out[f"recall@{k}"] = {"value": mean, "ci95": [lo, hi], "chance": k / catalogue_size}
-    mrr, lo, hi = bootstrap_mean_ci(reciprocal_ranks(ranks), n_boot=n_boot, seed=seed)
-    out["mrr"] = {"value": mrr, "ci95": [lo, hi]}
+        mean, lo, hi = cluster_bootstrap_mean_ci(
+            recall_hits(ranks, k), users, n_boot=n_boot, seed=seed + k
+        )
+        out[f"recall@{k}"] = {"value": mean, "ci95_user_cluster": [lo, hi],
+                             "chance": k / catalogue_size}
+    mrr, lo, hi = cluster_bootstrap_mean_ci(
+        reciprocal_ranks(ranks), users, n_boot=n_boot, seed=seed
+    )
+    out["mrr"] = {"value": mrr, "ci95_user_cluster": [lo, hi]}
     return out
 
 
@@ -178,13 +189,17 @@ def main() -> int:
     popularity_ranks = expected_rank_from_scores(np.sort(popularity), popularity[positive_rows0])
 
     methods = {"model": ranks["model"], "shuffled users": ranks["shuffled users"], "popularity": popularity_ranks}
-    report["results"] = [summarise(name, r, args.ks, catalogue_size, args.bootstrap, args.seed) for name, r in methods.items()]
+    query_users = user_index[rows].astype(np.int64, copy=False)
+    report["results"] = [
+        summarise(name, r, query_users, args.ks, catalogue_size, args.bootstrap, args.seed)
+        for name, r in methods.items()
+    ]
 
     print(f"\n=== Full-catalogue retrieval on {args.split} ({q:,} queries, {catalogue_size:,} videos) ===")
     print(f"{'method':<16}" + "".join(f"{'R@' + str(k):>22}" for k in args.ks) + f"{'MRR':>10}{'median rank':>14}")
     for row in report["results"]:
         cells = "".join(
-            f"{row[f'recall@{k}']['value']:>10.4f} [{row[f'recall@{k}']['ci95'][0]:.3f},{row[f'recall@{k}']['ci95'][1]:.3f}]"
+            f"{row[f'recall@{k}']['value']:>10.4f} [{row[f'recall@{k}']['ci95_user_cluster'][0]:.3f},{row[f'recall@{k}']['ci95_user_cluster'][1]:.3f}]"
             for k in args.ks)
         print(f"{row['method']:<16}{cells}{row['mrr']['value']:>10.4f}{row['median_rank']:>14,.0f}")
     print("\nHow to read it: 'model' above 'popularity' means it adds value beyond popular videos; "

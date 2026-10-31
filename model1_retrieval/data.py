@@ -57,6 +57,14 @@ def load_split(data_dir: Path, name: str) -> PreparedSplit:
         raise ValueError(f"{path}: expected labels shape [N, 10], got {labels.shape}")
     if catalog_video_indices is not None and catalog_video_indices.shape != (categorical.shape[0],):
         raise ValueError(f"{path}: catalog_video_indices must have shape [N]")
+    if np.any(categorical < 0):
+        raise ValueError(f"{path}: categorical indices must be nonnegative (0 is the OOV index)")
+    if not np.isfinite(numeric).all():
+        raise ValueError(f"{path}: numeric features contain NaN or infinite values")
+    if not np.isfinite(labels).all() or np.any((labels < 0) | (labels > 1)):
+        raise ValueError(f"{path}: labels must be finite values in [0, 1]")
+    if catalog_video_indices is not None and np.any(catalog_video_indices < 0):
+        raise ValueError(f"{path}: catalogue video indices must be nonnegative")
     return PreparedSplit(categorical, numeric, labels, catalog_video_indices)
 
 

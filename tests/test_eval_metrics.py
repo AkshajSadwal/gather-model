@@ -81,6 +81,18 @@ class MetricTests(unittest.TestCase):
 
 
 class GroupedNdcgTests(unittest.TestCase):
+    def test_cluster_bootstrap_is_reproducible_and_validates_shapes(self):
+        from common.eval_metrics import cluster_bootstrap_mean_ci
+
+        values = np.asarray([1.0, 0.0, 1.0, 1.0, 0.0])
+        users = np.asarray([10, 10, 20, 30, 30])
+        first = cluster_bootstrap_mean_ci(values, users, n_boot=100, seed=7)
+        second = cluster_bootstrap_mean_ci(values, users, n_boot=100, seed=7)
+        self.assertEqual(first, second)
+        self.assertAlmostEqual(first[0], values.mean())
+        with self.assertRaises(ValueError):
+            cluster_bootstrap_mean_ci(values, users[:-1], n_boot=10)
+
     def test_hand_computed_values(self):
         # One group of 4 items, gains [3, 0, 2, 1]
         gain = np.array([3, 0, 2, 1], dtype=float)
@@ -178,13 +190,22 @@ class CatalogRankTests(unittest.TestCase):
         full = catalog.astype(np.float32)
         for name, vectors in (("a", users), ("b", users[::-1])):
             scores = vectors @ full.T
-            expected = np.empty(q, dtype=np.int64)
+            expected = np.empty(q, dtype=np.float64)
             for i in range(q):
                 row = scores[i].copy()
                 pos = row[positives[i]]
                 row[positives[i]] = -np.inf
-                expected[i] = 1 + int((row > pos).sum())
-            np.testing.assert_array_equal(got[name], expected)
+                expected[i] = 1 + int((row > pos).sum()) + 0.5 * int((row == pos).sum())
+            np.testing.assert_allclose(got[name], expected)
+
+    def test_exact_ties_receive_average_rank_not_optimistic_rank(self):
+        from common.retrieval_eval import rank_against_catalog
+
+        catalog = np.ones((8, 4), dtype=np.float32)
+        users = np.ones((2, 4), dtype=np.float32)
+        ranks = rank_against_catalog({"all_tied": users}, np.array([0, 7]), catalog,
+                                     chunk_size=3, query_block=1)
+        np.testing.assert_allclose(ranks["all_tied"], [4.5, 4.5])
 
     def test_perfect_user_vector_ranks_first(self):
         from common.retrieval_eval import rank_against_catalog

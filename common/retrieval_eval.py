@@ -6,6 +6,15 @@ from typing import Callable
 import numpy as np
 
 
+
+def score_tolerance(reference_scores: np.ndarray, rtol: float = 1e-6,
+                    atol: float = 1e-8) -> np.ndarray:
+    """Small float32 comparison tolerance for scores produced by different BLAS paths."""
+    reference_scores = np.asarray(reference_scores, dtype=np.float64)
+    return atol + rtol * np.abs(reference_scores)
+
+
+
 def rank_against_catalog(
     user_vector_sets: dict[str, np.ndarray],
     positive_rows: np.ndarray,
@@ -23,8 +32,9 @@ def rank_against_catalog(
     positive_rows: 0-based catalogue row of each query's positive item, shape [Q].
     catalog: array-like [N, D] (a float16 np.memmap is fine). It is read chunk by chunk.
 
-    The positive item itself is excluded from its own comparison. Exact ties with the
-    positive's score are not counted as being ranked above it.
+    The positive item itself is excluded from its own comparison. Exact score ties are
+    split evenly: expected rank = 1 + strictly-greater items + 0.5 * other tied items.
+    This avoids optimistic ranks for OOV/cold-start items with identical vectors.
     """
     positive_rows = np.asarray(positive_rows, dtype=np.int64)
     q = positive_rows.shape[0]
@@ -36,6 +46,7 @@ def rank_against_catalog(
             raise ValueError(f"user vector set '{name}' has {vectors.shape[0]} rows for {q} queries")
     positive_scores = {name: np.einsum("qd,qd->q", v, positive_vectors) for name, v in sets.items()}
     greater = {name: np.zeros(q, dtype=np.int64) for name in sets}
+    equal = {name: np.zeros(q, dtype=np.int64) for name in sets}
 
     for start in range(0, n, chunk_size):
         stop = min(start + chunk_size, n)
@@ -48,7 +59,13 @@ def rank_against_catalog(
                 scores = vectors[a:b] @ block.T
                 if inside.size:
                     scores[inside, rows[inside] - start] = -np.inf
-                greater[name][a:b] += (scores > positive_scores[name][a:b, None]).sum(axis=1)
+                thresholds = positive_scores[name][a:b, None]
+                tolerance = score_tolerance(thresholds)
+                greater[name][a:b] += (scores > thresholds + tolerance).sum(axis=1)
+                equal[name][a:b] += (np.abs(scores - thresholds) <= tolerance).sum(axis=1)
         if progress is not None:
             progress(stop, n)
-    return {name: g + 1 for name, g in greater.items()}
+    return {
+        name: 1.0 + g.astype(np.float64) + 0.5 * equal[name].astype(np.float64)
+        for name, g in greater.items()
+    }

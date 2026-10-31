@@ -9,6 +9,70 @@ The retrieval implementation is an offline KuaiRand prototype built against the 
 
 The training code automatically selects CUDA when available, then Apple Silicon MPS, then CPU.
 
+
+
+## Current project status (2026-11-01)
+
+This repository contains the current offline two-stage prototype. The active KuaiRand-1K prepared dataset used in the latest retrieval diagnosis is `data/processed/ranking/1k_v3_catalog`; some historical examples later in this README still show the older `1k_v2` directory name. Use the dataset path that matches the checkpoint/index metadata—never mix versions.
+
+### Validated retrieval baseline to preserve
+
+The best currently validated retrieval checkpoint is:
+
+```text
+artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt
+```
+
+Its matching full-catalogue index is:
+
+```text
+data/indexes/retrieval/1k_v3_catalog_original/
+```
+
+Do not overwrite either. The later pure in-batch and hybrid experiments did not improve overall full-catalogue retrieval and must not be promoted. Their resume checkpoints/indexes were intentionally removed during storage cleanup; their reports and experiment notes remain.
+
+The full-catalogue validation diagnosis (5,000 queries, seed 314159) found very low absolute retrieval recall: approximately R@20 0.0002, R@100 0.0012, R@500 0.0054, and R@1000 0.0104 for the original model. It nevertheless outperformed the popularity baseline at larger K by point estimate. These values are not sampled Recall@K and should not be compared with sampled training metrics.
+
+### Important known limitations
+
+- **No watch-history representation in Model 1.** The current user tower uses user ID, static profile features and request context. It does not encode ordered recent watches or session interests. Adding history requires a leakage-safe chronological feature pipeline and a new model/checkpoint/index; it is not a safe drop-in change.
+- **Static metadata timing is not proven.** The preparation pipeline uses static user/video feature tables. User feature as-of timestamps are not provided, so temporal leakage cannot be ruled out. Aggregate video-statistic files remain excluded.
+- **Long-tail and cold-start quality remains weak.** Many validation positives are metadata-backed videos whose training video-ID embedding is OOV. Side metadata alone is not currently sufficient for strong full-catalogue recall.
+- **Training checkpoint selection is sampled.** The trainer chooses `best_model.pt` using a small fixed validation candidate sample (uniform sampled negatives). This is useful for fast iteration but does not reliably predict full-catalogue quality. Promote models only after the full-catalogue validation protocol.
+- **This is not production serving.** There is no online feature store, live event/history service, ANN service, real-time policy filtering, monitoring or online A/B test.
+- **Model 2 utility weights remain heuristic.** Do not treat the hand-weighted action score as calibrated business utility. Tune/calibrate on validation only, then evaluate once on held-out test.
+
+### Current full-catalogue evaluation protocol
+
+The full-catalogue evaluator and diagnosis now use expected ranks for exact score ties: `1 + strictly-greater competitors + 0.5 × other tied competitors`. This avoids optimistic rank estimates for cold-start/OOV items that may share identical vectors. Confidence intervals in the evaluator resample users as clusters, preserving within-user dependence.
+
+Run the baseline evaluation from the project root:
+
+```bash
+python -u -m scripts.evaluate_retrieval \
+  --data-dir data/processed/ranking/1k_v3_catalog \
+  --model-path artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt \
+  --index-dir data/indexes/retrieval/1k_v3_catalog_original \
+  --split validation \
+  --queries 5000 \
+  --seed 314159 \
+  --output reports/experiments/retrieval_validation_tie_aware.json
+```
+
+Run the cohort/raw-versus-filtered diagnosis:
+
+```bash
+python -u -m scripts.diagnose_retrieval \
+  --data-dir data/processed/ranking/1k_v3_catalog \
+  --model-path artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt \
+  --index-dir data/indexes/retrieval/1k_v3_catalog_original \
+  --queries 5000 \
+  --seed 314159 \
+  --output reports/experiments/retrieval_diagnosis_tie_aware.json
+```
+
+These commands are intended for the Mac that has the matching prepared data, checkpoint and index. The source archive alone does not include those large binary assets.
+
 ## Project history and issue tracking
 
 See [`PROJECT_ISSUES_AND_RESOLUTIONS.md`](PROJECT_ISSUES_AND_RESOLUTIONS.md) for the running record of previous experiments, problems, fixes, current limitations, and next steps. Update this file in every future patch.

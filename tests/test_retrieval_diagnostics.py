@@ -28,6 +28,20 @@ class RetrievalDiagnosticTests(unittest.TestCase):
         )
         self.assertEqual(int(filtered[0]), 1)
 
+    def test_filter_removes_half_rank_for_an_exact_score_tie(self):
+        embeddings = np.asarray([
+            [1.0, 0.0],
+            [0.5, 0.0],
+            [0.5, 0.0],
+            [-1.0, 0.0],
+        ], dtype=np.float16)
+        filtered = subtract_seen_positive_competitors(
+            np.asarray([2.5]), np.asarray([[1.0, 0.0]], dtype=np.float32),
+            np.asarray([0.5], dtype=np.float32), np.asarray([4]), np.asarray([2]),
+            {4: np.asarray([2, 3], dtype=np.int32)}, embeddings,
+        )
+        np.testing.assert_allclose(filtered, [2.0])
+
     def test_filter_does_not_remove_target_when_it_is_a_train_positive(self):
         embeddings = np.asarray([[1.0, 0.0], [0.5, 0.0]], dtype=np.float16)
         filtered = subtract_seen_positive_competitors(

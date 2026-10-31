@@ -717,3 +717,43 @@ The script:
 ### Next action
 
 Run the diagnostic against both the original checkpoint/index and the hybrid epoch-1 checkpoint/index using the same 5,000-query validation sample and seed 314159. Compare cold-start versus training-known items, head/tail exposure cohorts, and raw versus filtered Recall@K. Do not start another full training run until these reports identify which failure mode is dominant.
+
+
+## 15. Source archive audit and evaluation correctness patch (2026-11-01)
+
+### Scope and reproducibility
+
+Reviewed the complete source archive supplied from the Mac (65 files before removing the already-verified duplicate diagnostics patch directory from this delivery). The archive intentionally excludes local datasets, checkpoints, vector indexes, `.venv`, and Git internals. Consequently, source-level tests can be run here, but data-dependent training and full-catalogue evaluation must be repeated on the Mac.
+
+Before this patch, the repository test suite passed 32 tests.
+
+### Fixes implemented
+
+1. **Exact-score tie handling in full-catalogue retrieval.** `common/retrieval_eval.py` previously counted only scores strictly greater than the target. Equal-score catalogue items were ignored, yielding an optimistic rank when several items shared the same vector/score (especially relevant to OOV/cold-start representations). It now returns expected rank: `1 + greater + 0.5 * other_equal`.
+2. **Consistent filtered diagnostic accounting.** `scripts/diagnose_retrieval.py` now removes one full rank position for each filtered strictly-higher known-positive item and half a position for each filtered tied item. It retains the held-out target.
+3. **User-cluster confidence intervals in the main evaluator.** `scripts/evaluate_retrieval.py` previously bootstrapped individual query rows, although many rows belong to the same user. It now uses a query-weighted user-cluster bootstrap for Recall@K and MRR and records the method/unique-user count in the report.
+4. **Prepared-array input validation.** `model1_retrieval.data.load_split` now rejects negative categorical/catalogue indices, non-finite numeric features, and non-finite/out-of-range labels before training/evaluation.
+5. **Regression tests.** Added tests for tie-aware ranks, filtered tie accounting, reproducible user-cluster bootstrap, and invalid prepared arrays.
+
+### Verification
+
+- `python -m pytest -q`: **39 passed** in the extracted source workspace.
+- Updated Python modules compile successfully.
+- No actual KuaiRand training, checkpoint load, MPS run, or full-catalogue evaluation was performed in this environment because the archive did not include the corresponding data/checkpoints/indexes.
+- The existing 32 tests passed before changes; the patch adds seven test cases, bringing the suite to 39.
+
+### Findings deliberately not changed without data-backed validation
+
+- The user tower still has no ordered/recent watch-history representation. The prepared NPZ schema currently omits per-row timestamps/history sequences. Implementing history safely requires changing preparation, split schema, training, validation/inference feature construction, fingerprints and tests together; simply adding a history embedding would risk temporal leakage and train/serve mismatch.
+- User/video feature tables are static snapshots with unknown as-of times. This remains a documented temporal-leakage uncertainty, not a proven leak.
+- Training checkpoint selection still uses sampled Recall@100 over a small fixed query/candidate set. Full-catalogue validation remains the required promotion gate; replacing the training selector with a costly multi-million-item scan every epoch needs a deliberate compute/quality design.
+- The current full-catalogue recall is low, particularly in the tail. The previously tested pure in-batch and hybrid loss variants did not improve the overall full-catalogue baseline and are not promoted.
+- Model 2 score weights remain heuristic and are not calibrated.
+- No change to model architecture, loss weights, optimizer defaults, data split policy, or checkpoint contents was made in this patch. No model-quality improvement is claimed.
+
+### Next required actions on the Mac
+
+1. Install this source patch without replacing `best_model.pt`, prepared data, or the original retrieval index.
+2. Activate the existing project `.venv` and run `python -m pytest -q`.
+3. Run the tie-aware baseline evaluation and diagnosis commands in the README against the preserved original checkpoint/index. The metrics will differ slightly from older reports because exact ties are now split evenly and confidence intervals are user-clustered.
+4. Only after those reports are recorded should we design the chronological watch-history schema and a new retrieval experiment. Keep the original checkpoint/index as the rollback baseline.

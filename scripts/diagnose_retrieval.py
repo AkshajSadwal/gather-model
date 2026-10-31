@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 from common.eval_metrics import relevance_gains
-from common.retrieval_eval import rank_against_catalog
+from common.retrieval_eval import rank_against_catalog, score_tolerance
 from model1_retrieval.data import (
     data_fingerprint,
     item_catalog_indices,
@@ -69,11 +69,11 @@ def subtract_seen_positive_competitors(
     """Remove other train-positive items from each query's raw rank.
 
     The positive target is retained if the same user-item pair also occurred in
-    training. Ties are treated consistently with rank_against_catalog: only
-    strictly higher-scoring competitors are counted above the target.
+    training. A removed strictly-higher item subtracts 1 rank position; a removed
+    exact-score tie subtracts half a position, matching expected-rank evaluation.
     """
-    ranks = np.asarray(raw_ranks, dtype=np.int64).copy()
-    above_removed = np.zeros(len(ranks), dtype=np.int64)
+    ranks = np.asarray(raw_ranks, dtype=np.float64).copy()
+    rank_contribution_removed = np.zeros(len(ranks), dtype=np.float64)
     for q, (user, target) in enumerate(zip(query_users.tolist(), positive_items.tolist())):
         item_ids = user_positive_items.get(int(user))
         if item_ids is None or item_ids.size == 0:
@@ -82,15 +82,18 @@ def subtract_seen_positive_competitors(
         if competitors.size == 0:
             continue
         target_score = float(positive_scores[q])
-        count = 0
+        count_greater = 0
+        count_equal = 0
         for start in range(0, competitors.size, block_size):
             ids = competitors[start:start + block_size].astype(np.int64, copy=False)
             item_vectors = np.asarray(embeddings[ids - 1], dtype=np.float32)
             scores = item_vectors @ user_vectors[q].astype(np.float32, copy=False)
-            count += int(np.count_nonzero(scores > target_score))
-        above_removed[q] = count
-    filtered = ranks - above_removed
-    if np.any(filtered < 1):
+            tolerance = float(score_tolerance(np.asarray(target_score)))
+            count_greater += int(np.count_nonzero(scores > target_score + tolerance))
+            count_equal += int(np.count_nonzero(np.abs(scores - target_score) <= tolerance))
+        rank_contribution_removed[q] = count_greater + 0.5 * count_equal
+    filtered = ranks - rank_contribution_removed
+    if np.any(filtered < 1.0 - 1e-9):
         raise RuntimeError("Filtered rank fell below 1; exclusion accounting is inconsistent")
     return filtered
 
@@ -261,7 +264,7 @@ def main() -> int:
         "queries": int(len(rows)),
         "unique_users": int(np.unique(query_users).size),
         "query_seed": args.seed,
-        "ranking_definition": "1 + number of catalogue items with strictly greater dot-product score; ties are not counted above target",
+        "ranking_definition": "expected 1-based rank: 1 + strictly greater scores + 0.5 * other exact-score ties",
         "filtered_definition": "remove all other unique training positive user-item pairs for the query user; retain the held-out target itself",
         "cold_start_query_pct": float(100 * is_unseen.mean()) if len(rows) else 0.0,
         "same_user_video_pair_seen_in_train_pct": float(100 * np.mean(np.isin(

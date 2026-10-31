@@ -62,6 +62,33 @@ def bootstrap_mean_ci(values: np.ndarray, n_boot: int = 1000, seed: int = 0,
     return float(values.mean()), float(lo), float(hi)
 
 
+def cluster_bootstrap_mean_ci(values: np.ndarray, groups: np.ndarray, n_boot: int = 1000,
+                               seed: int = 0, alpha: float = 0.05) -> tuple[float, float, float]:
+    """Query-weighted mean and percentile CI with clusters (for example users) resampled.
+
+    Every sampled cluster contributes all its rows. This preserves within-user dependence
+    while retaining the original query-weighted estimand.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    groups = np.asarray(groups)
+    if values.ndim != 1 or groups.ndim != 1 or values.shape != groups.shape:
+        raise ValueError("values and groups must be matching 1-D arrays")
+    if n_boot < 1:
+        raise ValueError("n_boot must be positive")
+    if values.size == 0:
+        return float("nan"), float("nan"), float("nan")
+    unique, inverse = np.unique(groups, return_inverse=True)
+    sums = np.bincount(inverse, weights=values, minlength=unique.size)
+    counts = np.bincount(inverse, minlength=unique.size).astype(np.float64)
+    rng = np.random.default_rng(seed)
+    samples = np.empty(n_boot, dtype=np.float64)
+    for i in range(n_boot):
+        draw = rng.integers(0, unique.size, size=unique.size)
+        samples[i] = sums[draw].sum() / counts[draw].sum()
+    lo, hi = np.quantile(samples, [alpha / 2, 1 - alpha / 2])
+    return float(values.mean()), float(lo), float(hi)
+
+
 def paired_diff_ci(a: np.ndarray, b: np.ndarray, n_boot: int = 1000, seed: int = 0,
                    alpha: float = 0.05) -> tuple[float, float, float]:
     """Mean of (a - b) with a bootstrap CI; a and b must be aligned per unit."""
