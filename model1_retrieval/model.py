@@ -9,8 +9,23 @@ from torch import nn
 
 
 class FeatureTower(nn.Module):
+    """Embeds categorical fields, concatenates numeric fields and applies an MLP.
+
+    ``gated_id_column`` marks one categorical column as a high-cardinality entity ID (the
+    video ID). Two mechanisms stop the tower from memorising IDs of rarely seen entities:
+
+    * ``id_keep`` (a saved buffer): IDs whose flag is False are replaced by the OOV index 0
+      every time, in training *and* serving. The trainer sets it from training frequency,
+      so rare and brand-new videos look the same to the model.
+    * ``id_dropout`` (training only): a random fraction of rows also loses the ID, which
+      teaches the tower to rank from content features alone.
+
+    With the defaults (all IDs kept, no dropout) the tower behaves exactly like before, and
+    checkpoints saved without ``id_keep`` still load.
+    """
+
     def __init__(self, categorical_sizes: list[int], numeric_features: int,
-                 embedding_dims: list[int], tower_name: str):
+                 embedding_dims: list[int], tower_name: str, gated_id_column: int | None = None):
         super().__init__()
         if len(categorical_sizes) != len(embedding_dims):
             raise ValueError(f"{tower_name}: categorical sizes and embedding dimensions differ")
@@ -34,9 +49,43 @@ class FeatureTower(nn.Module):
         with torch.no_grad():
             for embedding in self.embeddings:
                 embedding.weight[0].zero_()
+        if gated_id_column is not None and not 0 <= int(gated_id_column) < len(self.categorical_sizes):
+            raise ValueError(f"{tower_name}: gated_id_column {gated_id_column} is outside the categorical fields")
+        self.gated_id_column = None if gated_id_column is None else int(gated_id_column)
+        self.id_dropout = 0.0
+        if self.gated_id_column is not None:
+            self.register_buffer("id_keep", torch.ones(self.categorical_sizes[self.gated_id_column], dtype=torch.bool))
+
+    def set_id_keep(self, keep) -> None:
+        """Choose which entity IDs keep their own embedding (True) or are treated as OOV (False)."""
+        if self.gated_id_column is None:
+            raise ValueError("This tower has no gated ID column")
+        keep = torch.as_tensor(keep, dtype=torch.bool)
+        if tuple(keep.shape) != tuple(self.id_keep.shape):
+            raise ValueError(f"id_keep must have shape {tuple(self.id_keep.shape)}, got {tuple(keep.shape)}")
+        keep = keep.clone()
+        keep[0] = False  # index 0 is the OOV row itself
+        self.id_keep.copy_(keep.to(self.id_keep.device))
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys,
+                              unexpected_keys, error_msgs):
+        # Checkpoints written before ID gating existed have no id_keep entry: keep every ID.
+        key = prefix + "id_keep"
+        if self.gated_id_column is not None and key not in state_dict:
+            state_dict[key] = self.id_keep.detach().clone()
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys,
+                                      unexpected_keys, error_msgs)
 
     def forward(self, categorical: torch.Tensor, numeric: torch.Tensor) -> torch.Tensor:
-        pieces = [embedding(categorical[:, i].long()) for i, embedding in enumerate(self.embeddings)]
+        columns = [categorical[:, i].long() for i in range(len(self.embeddings))]
+        if self.gated_id_column is not None:
+            ids = columns[self.gated_id_column]
+            ids = torch.where(self.id_keep[ids], ids, torch.zeros_like(ids))
+            if self.training and self.id_dropout > 0.0:
+                dropped = torch.rand(ids.shape, device=ids.device) < self.id_dropout
+                ids = ids.masked_fill(dropped, 0)
+            columns[self.gated_id_column] = ids
+        pieces = [embedding(column) for embedding, column in zip(self.embeddings, columns)]
         pieces.append(numeric.float())
         representation = self.network(torch.cat(pieces, dim=1))
         return F.normalize(representation, p=2, dim=1, eps=1e-8)
@@ -94,7 +143,8 @@ class TwoTowerRetrieval(nn.Module):
         user_sizes = [sizes[i] for i in self.USER_COLUMNS]
         video_sizes = [sizes[i] for i in self.VIDEO_COLUMNS]
         self.user_tower = FeatureTower(user_sizes, len(self.USER_NUMERIC_COLUMNS), user_dims, "user")
-        self.video_tower = FeatureTower(video_sizes, len(self.VIDEO_NUMERIC_COLUMNS), video_dims, "video")
+        self.video_tower = FeatureTower(video_sizes, len(self.VIDEO_NUMERIC_COLUMNS), video_dims, "video",
+                                        gated_id_column=0)
         self.user_categorical_sizes = user_sizes
         self.video_categorical_sizes = video_sizes
         self.user_embedding_dims = user_dims

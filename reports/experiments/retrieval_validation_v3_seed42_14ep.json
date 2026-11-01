@@ -1,0 +1,157 @@
+{
+  "model_path": "artifacts/retrieval/v3_full_seed42_12ep/best_model.pt",
+  "index_dir": "data/indexes/retrieval/1k_v3_v3_seed42_14ep",
+  "split": "validation",
+  "checkpoint_best_epoch": 14,
+  "catalogue_size": 4371868,
+  "eligible_positive_rows": 243623,
+  "pct_eligible_positives_on_video_unseen_in_training": 53.1386609638663,
+  "pct_eligible_positives_on_unseen_video_with_catalogue_metadata": 53.1386609638663,
+  "pct_eligible_positives_missing_from_basic_video_catalogue": 0.0,
+  "retrievable_positive_rows": 243623,
+  "cold_start_positive_rows_with_metadata": 129458,
+  "positive_rows_without_catalogue_metadata": 0,
+  "queries": 5000,
+  "pct_shuffled_queries_with_same_user": 0.52,
+  "results": [
+    {
+      "method": "model",
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 291902.5,
+      "confidence_interval_method": "query-weighted user-cluster bootstrap",
+      "recall@20": {
+        "value": 0.0008,
+        "ci95_user_cluster": [
+          0.00019406171162429653,
+          0.0016678135433391946
+        ],
+        "chance": 4.574703536337328e-06
+      },
+      "recall@100": {
+        "value": 0.002,
+        "ci95_user_cluster": [
+          0.0008215112802721956,
+          0.00332302234279417
+        ],
+        "chance": 2.2873517681686638e-05
+      },
+      "recall@500": {
+        "value": 0.0094,
+        "ci95_user_cluster": [
+          0.006847832168172376,
+          0.012288682800175543
+        ],
+        "chance": 0.0001143675884084332
+      },
+      "recall@1000": {
+        "value": 0.014,
+        "ci95_user_cluster": [
+          0.01081751726707849,
+          0.01747045031437704
+        ],
+        "chance": 0.0002287351768168664
+      },
+      "mrr": {
+        "value": 0.00024652329343576246,
+        "ci95_user_cluster": [
+          8.824626475796457e-05,
+          0.0005026788232320469
+        ]
+      }
+    },
+    {
+      "method": "shuffled users",
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 1577291.0,
+      "confidence_interval_method": "query-weighted user-cluster bootstrap",
+      "recall@20": {
+        "value": 0.0002,
+        "ci95_user_cluster": [
+          0.0,
+          0.0006206297738031531
+        ],
+        "chance": 4.574703536337328e-06
+      },
+      "recall@100": {
+        "value": 0.0004,
+        "ci95_user_cluster": [
+          0.0,
+          0.0010216852958732491
+        ],
+        "chance": 2.2873517681686638e-05
+      },
+      "recall@500": {
+        "value": 0.0014,
+        "ci95_user_cluster": [
+          0.00040732990199066814,
+          0.002553042114056458
+        ],
+        "chance": 0.0001143675884084332
+      },
+      "recall@1000": {
+        "value": 0.0034,
+        "ci95_user_cluster": [
+          0.0019302701219127733,
+          0.005115215427061623
+        ],
+        "chance": 0.0002287351768168664
+      },
+      "mrr": {
+        "value": 5.523459744612982e-05,
+        "ci95_user_cluster": [
+          9.648908407545995e-06,
+          0.00014196539836736
+        ]
+      }
+    },
+    {
+      "method": "popularity",
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 3004879.5,
+      "confidence_interval_method": "query-weighted user-cluster bootstrap",
+      "recall@20": {
+        "value": 0.0002,
+        "ci95_user_cluster": [
+          0.0,
+          0.0006155140317869537
+        ],
+        "chance": 4.574703536337328e-06
+      },
+      "recall@100": {
+        "value": 0.0008,
+        "ci95_user_cluster": [
+          0.00019199667056203558,
+          0.0016109544905356424
+        ],
+        "chance": 2.2873517681686638e-05
+      },
+      "recall@500": {
+        "value": 0.0034,
+        "ci95_user_cluster": [
+          0.0019229131175468484,
+          0.005028309560522412
+        ],
+        "chance": 0.0001143675884084332
+      },
+      "recall@1000": {
+        "value": 0.0062,
+        "ci95_user_cluster": [
+          0.004057717691292349,
+          0.00861918106211231
+        ],
+        "chance": 0.0002287351768168664
+      },
+      "mrr": {
+        "value": 0.0002371764079281537,
+        "ci95_user_cluster": [
+          2.7182463721997225e-05,
+          0.0006579713938848373
+        ]
+      }
+    }
+  ],
+  "elapsed_seconds": 57.53118499999982
+}

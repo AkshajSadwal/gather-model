@@ -1,0 +1,1343 @@
+{
+  "model_path": "artifacts/retrieval/v3_full_seed42_12ep/best_model.pt",
+  "index_dir": "data/indexes/retrieval/1k_v3_v3_seed42_14ep",
+  "split": "validation",
+  "catalogue_size": 4371868,
+  "queries": 5000,
+  "unique_users": 815,
+  "query_seed": 314159,
+  "ranking_definition": "expected 1-based rank: 1 + strictly greater scores + 0.5 * other exact-score ties",
+  "filtered_definition": "remove all other unique training positive user-item pairs for the query user; retain the held-out target itself",
+  "cold_start_query_pct": 54.400000000000006,
+  "same_user_video_pair_seen_in_train_pct": 0.06,
+  "overall": {
+    "model_unfiltered": {
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 291902.5,
+      "mrr": 0.00024652329343576246,
+      "recall@20": {
+        "value": 0.0008,
+        "ci95_user_cluster": [
+          0.00019406171162429653,
+          0.0016678135433391946
+        ]
+      },
+      "recall@100": {
+        "value": 0.002,
+        "ci95_user_cluster": [
+          0.0008215112802721956,
+          0.00332302234279417
+        ]
+      },
+      "recall@500": {
+        "value": 0.0094,
+        "ci95_user_cluster": [
+          0.006847832168172376,
+          0.012288682800175543
+        ]
+      },
+      "recall@1000": {
+        "value": 0.014,
+        "ci95_user_cluster": [
+          0.01081751726707849,
+          0.01747045031437704
+        ]
+      }
+    },
+    "model_filtered_train_positives": {
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 289041.5,
+      "mrr": 0.00041941387178516163,
+      "recall@20": {
+        "value": 0.001,
+        "ci95_user_cluster": [
+          0.0002001190710424654,
+          0.0019689529010835406
+        ]
+      },
+      "recall@100": {
+        "value": 0.0024,
+        "ci95_user_cluster": [
+          0.001172035395817699,
+          0.0038737919178829096
+        ]
+      },
+      "recall@500": {
+        "value": 0.0104,
+        "ci95_user_cluster": [
+          0.007756691531373409,
+          0.01336414853922442
+        ]
+      },
+      "recall@1000": {
+        "value": 0.0158,
+        "ci95_user_cluster": [
+          0.012441323554976168,
+          0.01939379222808333
+        ]
+      }
+    },
+    "popularity_unfiltered": {
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 3004879.5,
+      "mrr": 0.0002371764079281537,
+      "recall@20": {
+        "value": 0.0002,
+        "ci95_user_cluster": [
+          0.0,
+          0.0006155140317869537
+        ]
+      },
+      "recall@100": {
+        "value": 0.0008,
+        "ci95_user_cluster": [
+          0.00019199667056203558,
+          0.0016109544905356424
+        ]
+      },
+      "recall@500": {
+        "value": 0.0034,
+        "ci95_user_cluster": [
+          0.0019229131175468484,
+          0.005028309560522412
+        ]
+      },
+      "recall@1000": {
+        "value": 0.0062,
+        "ci95_user_cluster": [
+          0.004057717691292349,
+          0.00861918106211231
+        ]
+      }
+    },
+    "popularity_filtered_train_positives": {
+      "queries": 5000,
+      "unique_users": 815,
+      "median_rank": 2996033.5,
+      "mrr": 0.0002475227085435922,
+      "recall@20": {
+        "value": 0.0002,
+        "ci95_user_cluster": [
+          0.0,
+          0.0006155140317869537
+        ]
+      },
+      "recall@100": {
+        "value": 0.001,
+        "ci95_user_cluster": [
+          0.00020205592399764638,
+          0.0019398098347565315
+        ]
+      },
+      "recall@500": {
+        "value": 0.0038,
+        "ci95_user_cluster": [
+          0.0022177307596023175,
+          0.005601232358583829
+        ]
+      },
+      "recall@1000": {
+        "value": 0.007,
+        "ci95_user_cluster": [
+          0.004745033157766856,
+          0.009509445421031937
+        ]
+      }
+    }
+  },
+  "item_cohorts": {
+    "train_exposures_100_plus": {
+      "model_unfiltered": {
+        "queries": 56,
+        "unique_users": 52,
+        "median_rank": 3456.0,
+        "mrr": 0.013906745682700002,
+        "recall@20": {
+          "value": 0.03571428571428571,
+          "ci95_user_cluster": [
+            0.0,
+            0.09259259259259259
+          ]
+        },
+        "recall@100": {
+          "value": 0.05357142857142857,
+          "ci95_user_cluster": [
+            0.0,
+            0.12280701754385964
+          ]
+        },
+        "recall@500": {
+          "value": 0.2857142857142857,
+          "ci95_user_cluster": [
+            0.16980332587144226,
+            0.40384615384615385
+          ]
+        },
+        "recall@1000": {
+          "value": 0.375,
+          "ci95_user_cluster": [
+            0.2545454545454545,
+            0.5
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 56,
+        "unique_users": 52,
+        "median_rank": 3073.0,
+        "mrr": 0.02567984612719441,
+        "recall@20": {
+          "value": 0.03571428571428571,
+          "ci95_user_cluster": [
+            0.0,
+            0.09259259259259259
+          ]
+        },
+        "recall@100": {
+          "value": 0.05357142857142857,
+          "ci95_user_cluster": [
+            0.0,
+            0.12280701754385964
+          ]
+        },
+        "recall@500": {
+          "value": 0.30357142857142855,
+          "ci95_user_cluster": [
+            0.1864092906465788,
+            0.42857142857142855
+          ]
+        },
+        "recall@1000": {
+          "value": 0.39285714285714285,
+          "ci95_user_cluster": [
+            0.2727272727272727,
+            0.5185185185185185
+          ]
+        }
+      },
+      "popularity_unfiltered": {
+        "queries": 56,
+        "unique_users": 52,
+        "median_rank": 904.75,
+        "mrr": 0.02029046901306934,
+        "recall@20": {
+          "value": 0.017857142857142856,
+          "ci95_user_cluster": [
+            0.0,
+            0.05555555555555555
+          ]
+        },
+        "recall@100": {
+          "value": 0.07142857142857142,
+          "ci95_user_cluster": [
+            0.017543859649122806,
+            0.14285714285714285
+          ]
+        },
+        "recall@500": {
+          "value": 0.30357142857142855,
+          "ci95_user_cluster": [
+            0.19298245614035087,
+            0.41818181818181815
+          ]
+        },
+        "recall@1000": {
+          "value": 0.5178571428571429,
+          "ci95_user_cluster": [
+            0.3888888888888889,
+            0.6441698053986183
+          ]
+        }
+      },
+      "popularity_filtered_train_positives": {
+        "queries": 56,
+        "unique_users": 52,
+        "median_rank": 844.75,
+        "mrr": 0.02113558664791822,
+        "recall@20": {
+          "value": 0.017857142857142856,
+          "ci95_user_cluster": [
+            0.0,
+            0.05555555555555555
+          ]
+        },
+        "recall@100": {
+          "value": 0.08928571428571429,
+          "ci95_user_cluster": [
+            0.018518518518518517,
+            0.16363636363636364
+          ]
+        },
+        "recall@500": {
+          "value": 0.3392857142857143,
+          "ci95_user_cluster": [
+            0.21428571428571427,
+            0.46296296296296297
+          ]
+        },
+        "recall@1000": {
+          "value": 0.5535714285714286,
+          "ci95_user_cluster": [
+            0.4258709981167608,
+            0.6785714285714286
+          ]
+        }
+      }
+    },
+    "train_exposures_1_to_4": {
+      "model_unfiltered": {
+        "queries": 925,
+        "unique_users": 466,
+        "median_rank": 372467.0,
+        "mrr": 2.9624755062234294e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.002162162162162162,
+          "ci95_user_cluster": [
+            0.0,
+            0.005446920398435938
+          ]
+        },
+        "recall@1000": {
+          "value": 0.004324324324324324,
+          "ci95_user_cluster": [
+            0.001037344398340249,
+            0.008998875140607425
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 925,
+        "unique_users": 466,
+        "median_rank": 367316.0,
+        "mrr": 3.456042887583597e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.002162162162162162,
+          "ci95_user_cluster": [
+            0.0,
+            0.005446920398435938
+          ]
+        },
+        "recall@1000": {
+          "value": 0.005405405405405406,
+          "ci95_user_cluster": [
+            0.0010857468892861433,
+            0.01074142730097132
+          ]
+        }
+      },
+      "popularity_unfiltered": {
+        "queries": 925,
+        "unique_users": 466,
+        "median_rank": 1218265.0,
+        "mrr": 1.2645206521509469e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "popularity_filtered_train_positives": {
+        "queries": 925,
+        "unique_users": 466,
+        "median_rank": 1214137.5,
+        "mrr": 1.2747410592838977e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    "train_exposures_20_to_99": {
+      "model_unfiltered": {
+        "queries": 486,
+        "unique_users": 311,
+        "median_rank": 67801.5,
+        "mrr": 0.0005416699299580347,
+        "recall@20": {
+          "value": 0.00411522633744856,
+          "ci95_user_cluster": [
+            0.0,
+            0.010684332619557455
+          ]
+        },
+        "recall@100": {
+          "value": 0.00823045267489712,
+          "ci95_user_cluster": [
+            0.00197228952150212,
+            0.016597510373443983
+          ]
+        },
+        "recall@500": {
+          "value": 0.03292181069958848,
+          "ci95_user_cluster": [
+            0.018517567875884097,
+            0.04938332601376079
+          ]
+        },
+        "recall@1000": {
+          "value": 0.047325102880658436,
+          "ci95_user_cluster": [
+            0.030236168631660374,
+            0.06609852155985127
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 486,
+        "unique_users": 311,
+        "median_rank": 65631.0,
+        "mrr": 0.0008819310027094522,
+        "recall@20": {
+          "value": 0.006172839506172839,
+          "ci95_user_cluster": [
+            0.0,
+            0.014286444639205371
+          ]
+        },
+        "recall@100": {
+          "value": 0.012345679012345678,
+          "ci95_user_cluster": [
+            0.004056795131845842,
+            0.023206751054852322
+          ]
+        },
+        "recall@500": {
+          "value": 0.037037037037037035,
+          "ci95_user_cluster": [
+            0.021635810997513126,
+            0.05416824837310195
+          ]
+        },
+        "recall@1000": {
+          "value": 0.059670781893004114,
+          "ci95_user_cluster": [
+            0.03999403578528827,
+            0.0799200819672131
+          ]
+        }
+      },
+      "popularity_unfiltered": {
+        "queries": 486,
+        "unique_users": 311,
+        "median_rank": 28634.0,
+        "mrr": 8.566842078137625e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.00411522633744856,
+          "ci95_user_cluster": [
+            0.0,
+            0.0104389593032905
+          ]
+        }
+      },
+      "popularity_filtered_train_positives": {
+        "queries": 486,
+        "unique_users": 311,
+        "median_rank": 27441.25,
+        "mrr": 9.44021137644286e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.00823045267489712,
+          "ci95_user_cluster": [
+            0.002012072434607646,
+            0.016598373029908294
+          ]
+        }
+      }
+    },
+    "train_exposures_5_to_19": {
+      "model_unfiltered": {
+        "queries": 813,
+        "unique_users": 450,
+        "median_rank": 274196.5,
+        "mrr": 4.0207317650309034e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0024600246002460025,
+          "ci95_user_cluster": [
+            0.0,
+            0.00630576883170782
+          ]
+        },
+        "recall@1000": {
+          "value": 0.006150061500615006,
+          "ci95_user_cluster": [
+            0.0012254901960784314,
+            0.011721056840551169
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 813,
+        "unique_users": 450,
+        "median_rank": 270703.5,
+        "mrr": 4.408404101936543e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0024600246002460025,
+          "ci95_user_cluster": [
+            0.0,
+            0.00630576883170782
+          ]
+        },
+        "recall@1000": {
+          "value": 0.006150061500615006,
+          "ci95_user_cluster": [
+            0.0012254901960784314,
+            0.011721056840551169
+          ]
+        }
+      },
+      "popularity_unfiltered": {
+        "queries": 813,
+        "unique_users": 450,
+        "median_rank": 193146.5,
+        "mrr": 7.264509763677925e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "popularity_filtered_train_positives": {
+        "queries": 813,
+        "unique_users": 450,
+        "median_rank": 190777.5,
+        "mrr": 7.447862427812684e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    "unseen_video_id_metadata_backed": {
+      "model_unfiltered": {
+        "queries": 2720,
+        "unique_users": 698,
+        "median_rank": 349499.75,
+        "mrr": 4.797635121534537e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0011029411764705882,
+          "ci95_user_cluster": [
+            0.0,
+            0.0025353132922854038
+          ]
+        },
+        "recall@500": {
+          "value": 0.004044117647058824,
+          "ci95_user_cluster": [
+            0.001516300227445034,
+            0.006762018215815186
+          ]
+        },
+        "recall@1000": {
+          "value": 0.00625,
+          "ci95_user_cluster": [
+            0.0034344962092395627,
+            0.009567680742092188
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 2720,
+        "unique_users": 698,
+        "median_rank": 343486.75,
+        "mrr": 5.9768671480600894e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0011029411764705882,
+          "ci95_user_cluster": [
+            0.0,
+            0.0025353132922854038
+          ]
+        },
+        "recall@500": {
+          "value": 0.004779411764705883,
+          "ci95_user_cluster": [
+            0.002180768629852268,
+            0.007692529842125529
+          ]
+        },
+        "recall@1000": {
+          "value": 0.006617647058823529,
+          "ci95_user_cluster": [
+            0.0037537537537537537,
+            0.010004059676246617
+          ]
+        }
+      },
+      "popularity_unfiltered": {
+        "queries": 2720,
+        "unique_users": 698,
+        "median_rank": 3004879.5,
+        "mrr": 3.3279204706877586e-07,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "popularity_filtered_train_positives": {
+        "queries": 2720,
+        "unique_users": 698,
+        "median_rank": 2999679.5,
+        "mrr": 3.3346158506588074e-07,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    }
+  },
+  "event_cohorts": {
+    "is_click": {
+      "model_unfiltered": {
+        "queries": 4884,
+        "unique_users": 813,
+        "median_rank": 289675.75,
+        "mrr": 0.0002518368512946814,
+        "recall@20": {
+          "value": 0.000819000819000819,
+          "ci95_user_cluster": [
+            0.0001972386587771203,
+            0.0016928351939798183
+          ]
+        },
+        "recall@100": {
+          "value": 0.0020475020475020475,
+          "ci95_user_cluster": [
+            0.0008262670322832243,
+            0.0033798057426584764
+          ]
+        },
+        "recall@500": {
+          "value": 0.009623259623259623,
+          "ci95_user_cluster": [
+            0.00695169597081006,
+            0.012404029392291736
+          ]
+        },
+        "recall@1000": {
+          "value": 0.014332514332514333,
+          "ci95_user_cluster": [
+            0.01099068447152624,
+            0.01786811102359932
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 4884,
+        "unique_users": 813,
+        "median_rank": 285753.25,
+        "mrr": 0.0004287607205211418,
+        "recall@20": {
+          "value": 0.0010237510237510238,
+          "ci95_user_cluster": [
+            0.00020439871226645502,
+            0.002047512530309991
+          ]
+        },
+        "recall@100": {
+          "value": 0.002457002457002457,
+          "ci95_user_cluster": [
+            0.0011906299673156936,
+            0.0039007555709712396
+          ]
+        },
+        "recall@500": {
+          "value": 0.010647010647010647,
+          "ci95_user_cluster": [
+            0.00788033871411548,
+            0.013658135888493302
+          ]
+        },
+        "recall@1000": {
+          "value": 0.016175266175266174,
+          "ci95_user_cluster": [
+            0.012558978276689014,
+            0.019851770330283482
+          ]
+        }
+      },
+      "queries": 4884
+    },
+    "is_like": {
+      "model_unfiltered": {
+        "queries": 213,
+        "unique_users": 96,
+        "median_rank": 311886.0,
+        "mrr": 5.311594049744556e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.004694835680751174,
+          "ci95_user_cluster": [
+            0.0,
+            0.01673698604520698
+          ]
+        },
+        "recall@1000": {
+          "value": 0.014084507042253521,
+          "ci95_user_cluster": [
+            0.0,
+            0.03365995762711861
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 213,
+        "unique_users": 96,
+        "median_rank": 307403.0,
+        "mrr": 6.62814366699965e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.009389671361502348,
+          "ci95_user_cluster": [
+            0.0,
+            0.024393984737393366
+          ]
+        },
+        "recall@1000": {
+          "value": 0.014084507042253521,
+          "ci95_user_cluster": [
+            0.0,
+            0.03365995762711861
+          ]
+        }
+      },
+      "queries": 213
+    },
+    "is_follow": {
+      "model_unfiltered": {
+        "queries": 12,
+        "unique_users": 11,
+        "median_rank": 220552.75,
+        "mrr": 7.900004286962589e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 12,
+        "unique_users": 11,
+        "median_rank": 219765.75,
+        "mrr": 8.117415661148146e-06,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "queries": 12
+    },
+    "is_comment": {
+      "model_unfiltered": {
+        "queries": 31,
+        "unique_users": 26,
+        "median_rank": 225964.0,
+        "mrr": 9.929175791568228e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.03225806451612903,
+          "ci95_user_cluster": [
+            0.0,
+            0.10714285714285714
+          ]
+        },
+        "recall@1000": {
+          "value": 0.03225806451612903,
+          "ci95_user_cluster": [
+            0.0,
+            0.1111111111111111
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 31,
+        "unique_users": 26,
+        "median_rank": 223456.0,
+        "mrr": 0.00013045282534589843,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.03225806451612903,
+          "ci95_user_cluster": [
+            0.0,
+            0.10714285714285714
+          ]
+        },
+        "recall@1000": {
+          "value": 0.03225806451612903,
+          "ci95_user_cluster": [
+            0.0,
+            0.1111111111111111
+          ]
+        }
+      },
+      "queries": 31
+    },
+    "is_forward": {
+      "model_unfiltered": {
+        "queries": 11,
+        "unique_users": 10,
+        "median_rank": 210116.0,
+        "mrr": 1.124675012660804e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 11,
+        "unique_users": 10,
+        "median_rank": 206863.0,
+        "mrr": 1.1708377434699033e-05,
+        "recall@20": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@100": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@500": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        },
+        "recall@1000": {
+          "value": 0.0,
+          "ci95_user_cluster": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "queries": 11
+    },
+    "long_view": {
+      "model_unfiltered": {
+        "queries": 3533,
+        "unique_users": 775,
+        "median_rank": 254182.5,
+        "mrr": 0.00032515719268093904,
+        "recall@20": {
+          "value": 0.0011321822813472968,
+          "ci95_user_cluster": [
+            0.00027381320344394954,
+            0.0023136437381155897
+          ]
+        },
+        "recall@100": {
+          "value": 0.0022643645626945937,
+          "ci95_user_cluster": [
+            0.0008448027441374108,
+            0.0038496561961832887
+          ]
+        },
+        "recall@500": {
+          "value": 0.011038777243136145,
+          "ci95_user_cluster": [
+            0.007745219182672536,
+            0.014480931931011914
+          ]
+        },
+        "recall@1000": {
+          "value": 0.01613359750919898,
+          "ci95_user_cluster": [
+            0.011963007894554659,
+            0.02018733014849628
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 3533,
+        "unique_users": 775,
+        "median_rank": 250103.0,
+        "mrr": 0.0005641483153539917,
+        "recall@20": {
+          "value": 0.001415227851684121,
+          "ci95_user_cluster": [
+            0.0002880101472639243,
+            0.002833001908140676
+          ]
+        },
+        "recall@100": {
+          "value": 0.002830455703368242,
+          "ci95_user_cluster": [
+            0.001147364876308109,
+            0.004583345415968646
+          ]
+        },
+        "recall@500": {
+          "value": 0.012170959524483441,
+          "ci95_user_cluster": [
+            0.008727293353480062,
+            0.015708590955467845
+          ]
+        },
+        "recall@1000": {
+          "value": 0.01811491650155675,
+          "ci95_user_cluster": [
+            0.013846167584808642,
+            0.0223689100682821
+          ]
+        }
+      },
+      "queries": 3533
+    },
+    "complete_view": {
+      "model_unfiltered": {
+        "queries": 2048,
+        "unique_users": 672,
+        "median_rank": 216991.5,
+        "mrr": 0.0004808968207362976,
+        "recall@20": {
+          "value": 0.00146484375,
+          "ci95_user_cluster": [
+            0.0,
+            0.003413261489550702
+          ]
+        },
+        "recall@100": {
+          "value": 0.00244140625,
+          "ci95_user_cluster": [
+            0.0004892367906066536,
+            0.004854427872895221
+          ]
+        },
+        "recall@500": {
+          "value": 0.01513671875,
+          "ci95_user_cluster": [
+            0.010258540159900865,
+            0.02029676031616323
+          ]
+        },
+        "recall@1000": {
+          "value": 0.021484375,
+          "ci95_user_cluster": [
+            0.015571355426581187,
+            0.02757958045045105
+          ]
+        }
+      },
+      "model_filtered_train_positives": {
+        "queries": 2048,
+        "unique_users": 672,
+        "median_rank": 213727.5,
+        "mrr": 0.000868625401443295,
+        "recall@20": {
+          "value": 0.001953125,
+          "ci95_user_cluster": [
+            0.0004730313054252747,
+            0.00401007533879835
+          ]
+        },
+        "recall@100": {
+          "value": 0.00341796875,
+          "ci95_user_cluster": [
+            0.0009954583717857526,
+            0.006202364089343948
+          ]
+        },
+        "recall@500": {
+          "value": 0.01611328125,
+          "ci95_user_cluster": [
+            0.01102176826124722,
+            0.02143205065757428
+          ]
+        },
+        "recall@1000": {
+          "value": 0.02294921875,
+          "ci95_user_cluster": [
+            0.016875399379581973,
+            0.029398383245038566
+          ]
+        }
+      },
+      "queries": 2048
+    }
+  },
+  "elapsed_seconds": 36.463613291
+}

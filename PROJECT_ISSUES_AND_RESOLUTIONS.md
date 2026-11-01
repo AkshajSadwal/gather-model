@@ -2,7 +2,7 @@
 
 **Document purpose:** Persistent engineering handover for the `feed-model-mac` / `reels-recommender-m4` project. Keep this file in the project root and include it in every future source-code patch ZIP.
 
-**Last updated:** 2026-10-31  
+**Last updated:** 2026-11-01 (section 16)  
 **Current development machine:** Apple Silicon Mac mini M4, 16 GB unified memory  
 **Current environment (reported):** macOS, Python 3.12.16, PyTorch 2.15.0, MPS available  
 **Project focus:** Two-stage short-video/Reels recommendation using KuaiRand-1K, with KuaiRand-Pure experiments retained as historical baselines.
@@ -757,3 +757,44 @@ Before this patch, the repository test suite passed 32 tests.
 2. Activate the existing project `.venv` and run `python -m pytest -q`.
 3. Run the tie-aware baseline evaluation and diagnosis commands in the README against the preserved original checkpoint/index. The metrics will differ slightly from older reports because exact ties are now split evenly and confidence intervals are user-clustered.
 4. Only after those reports are recorded should we design the chronological watch-history schema and a new retrieval experiment. Keep the original checkpoint/index as the rollback baseline.
+
+
+## 16. Retrieval v3 — root-cause analysis and new trainer (2026-11-01)
+
+**Status labels:** all code below is **VERIFY on the user's Mac**. It was written in an environment with no PyTorch and no data, so torch code was not executed there.
+
+### Evidence from the existing reports (not new experiments)
+
+1. **The in-batch full-catalogue result was never a test of the in-batch weights.** `retrieval_validation_1k_v3_inbatch_seed43.json` has `checkpoint_best_epoch: 0` and numbers identical to the original model. The trainer kept the imported epoch-0 weights as `best_model.pt` because its selection metric (sampled Recall@100, 512 queries x 500 uniform videos) fell for the new objective. `latest_checkpoint.pt` (epoch 10) was never indexed or evaluated on the full catalogue.
+2. **The selection metric rewards the failure mode.** Uniform negatives are mostly videos that the model has pushed down as training negatives. A model that memorises "rare IDs are negatives" scores well on it, so it blocked every alternative objective (in-batch, hybrid).
+3. **Cohorts (retrieval_diagnosis_corrected.json, 5,000 queries):** 54.4% of queries are on videos unseen in training. Recall@1000 by training exposure of the positive video: unseen-ID 1.65%, 1-4 exposures 0.11%, 5-19 exposures 0.12%, 20-99 exposures 0.82%, 100+ exposures 1.8% (n=56). Rarely seen IDs are the worst cohort even though they are close to half of the positives.
+4. **Mechanism (code reading, not proven by ablation):** `sample_negative_video_indices` draws negatives uniformly from the 4.37M catalogue (about 1.8 negative draws per video per epoch), while a video with 1-4 exposures has under one positive per epoch. Its ID embedding therefore learns to be a negative. In training all positives have a known video ID, while about 10% of sampled negatives (catalogue videos unseen in training) have the all-zero ID block, so the OOV path is trained only as a negative. Neither tower sees time, and the catalogue includes videos not yet uploaded at query time.
+5. **The benchmark itself:** ranking against 4.37M videos includes items that did not exist or were inactive at the query time. A time-windowed pool is the realistic comparison and keeps the old protocol available.
+
+### Changes (this patch)
+
+* `model1_retrieval/model.py`: video tower gets `id_keep` buffer (IDs outside it behave as OOV) and training-time `id_dropout`. Legacy checkpoints load with every ID kept (verified by a test, torch-run pending).
+* `model1_retrieval/train_v3.py`, `losses.py`, `common/pools.py`: time-local batches, same-day pool negatives, logQ-corrected sampled softmax with the user's other known positives excluded, ID gating by training frequency (default >= 20 exposures), pool-based checkpoint selection (hit rate in the top 1% of the day's pool).
+* `scripts/evaluate_retrieval_pools.py`: pool protocol with shuffled-user, previous-window popularity and user-author-affinity baselines, user-cluster bootstrap, cold/seen split.
+* `scripts/add_row_times.py`: writes `row_times.npz` (new file; fingerprints unchanged) after verifying row-for-row alignment with the prepared arrays.
+* Tests: `test_pools.py`, `test_add_row_times.py` (run without torch), `test_retrieval_v3.py` (torch vs NumPy reference loss, gating, legacy loading, gradients).
+
+### Verified in the patch workspace
+
+* 34 torch-free tests pass (42 including skipped torch tests). Pool helpers, tie-aware pool ranks, the known-pair bit matrix (brute-force comparison), batch builder, loss reference, row-time alignment (including rejection of scrambled/short data) and the real `read_log` path on tiny CSVs.
+* `evaluate_retrieval_pools.py` and the trainer's `PoolValidator` ran end to end on synthetic data with a stand-in for torch: planted signal found, shuffled users near chance, reversed user vectors score about 0.97 mean percentile.
+* Static undefined-name check over all modules.
+
+### NOT verified
+
+* Any torch execution: `FeatureTower` changes, `pool_softmax_loss`, the training loop, MPS speed/memory, real KuaiRand numbers. Run `tests/test_retrieval_v3.py` first, then a smoke run.
+* Whether v3 beats the original, popularity or author affinity. No improvement is claimed.
+* Videos absent from the basic-video table (the v3 diagnostics found none among interaction rows) would remain unindexable.
+
+### Next actions
+
+1. Install patch, run the tests (README_RETRIEVAL_V3.md step 0), create `row_times.npz`.
+2. Record the pool-protocol baseline for the original checkpoint (also shows how strong author affinity is).
+3. Smoke run, then the full 8-epoch run; compare on the pool report and the full-catalogue report.
+4. If author affinity still wins: add a leak-free recent-positive-history input to the user tower. If a v3 model wins: restrict `retrieve.py` to the active pool and re-run the end-to-end two-stage evaluation.
+5. Optional free check: index `latest_checkpoint.pt` of the in-batch run and evaluate it on the full catalogue (finding 1).
