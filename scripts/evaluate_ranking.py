@@ -18,6 +18,7 @@ used for tuning by accident.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -30,6 +31,14 @@ from common.eval_metrics import relevance_gains
 from common.ranking_eval import evaluate_ranking_predictions
 from model2_ranking.model_v2 import ReelsRankerV2
 from model2_ranking.recommend_v2 import SCORE_WEIGHTS
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def choose_device() -> torch.device:
@@ -123,8 +132,18 @@ def main() -> int:
         del train
 
     print("Computing metrics and bootstrap intervals...")
+    checkpoint_sha256 = sha256_file(Path(args.model_path))
+    prepared_files = {}
+    for filename in ("metadata.json", "id_maps.npz", "catalog_maps.npz", f"{args.split}.npz"):
+        candidate = data_dir / filename
+        if candidate.exists():
+            prepared_files[filename] = sha256_file(candidate)
     report: dict = {
         "model_path": str(args.model_path), "split": args.split, "rows": int(categorical.shape[0]),
+        "data_dir": str(data_dir), "data_schema_fingerprint": schema_fingerprint(data_dir),
+        "checkpoint_sha256": checkpoint_sha256,
+        "prepared_data_files_sha256": prepared_files,
+        "numeric_features": metadata.get("numeric_features", []),
         "checkpoint_best_epoch": checkpoint.get("best_epoch"),
         "checkpoint_validation_mean_auc": checkpoint.get("validation_score"),
     }
@@ -132,6 +151,9 @@ def main() -> int:
         probs, watch_pred, labels, watch_true, user, video, targets, SCORE_WEIGHTS,
         popularity_by_video=popularity, block_size=args.block_size, ks=tuple(args.ks),
         n_boot=args.bootstrap, seed=args.seed,
+        # numeric feature 0 is standardized log1p(video duration); its negative
+        # ranks shorter videos first without requiring a separate duration join.
+        duration_score=-numeric[:, 0],
     ))
     per_target = report["per_target"]
     ndcg_report = report["ndcg_reranking_logged_impressions"]["scores"]
@@ -157,6 +179,16 @@ def main() -> int:
             diff = f"   {d['mean']:+.4f} [{d['ci95'][0]:+.4f},{d['ci95'][1]:+.4f}]{flag}"
         print(f"{name:<34}{cells}{diff}")
     print("(* = difference at the first K is clearly different from zero)")
+    action_scores = report["ndcg_reranking_logged_impressions"]["gain_definitions"][
+        "action_only_duration_independent"
+    ]
+    print("\\n=== NDCG using duration-independent action gains ===")
+    for name in ("hand_weighted_score (current)", "shortest_video_first",
+                 "random_order", "p_complete_view", "p_long_view"):
+        if name not in action_scores:
+            continue
+        cells = " ".join(f"NDCG@{k}={action_scores[name][f'@{k}']['ndcg']:.4f}" for k in ks)
+        print(f"{name:<34}{cells}")
 
     report["elapsed_seconds"] = time.perf_counter() - started
     if args.output:

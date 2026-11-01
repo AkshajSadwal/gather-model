@@ -20,12 +20,23 @@ class FeatureTower(nn.Module):
     * ``id_dropout`` (training only): a random fraction of rows also loses the ID, which
       teaches the tower to rank from content features alone.
 
-    With the defaults (all IDs kept, no dropout) the tower behaves exactly like before, and
-    checkpoints saved without ``id_keep`` still load.
+    With the defaults (all IDs kept, no dropout, legacy output activation) the tower behaves
+    exactly like before, and checkpoints saved without ``id_keep`` still load.
+
+    ``linear_output`` removes the final ReLU and Dropout. This lets the normalized vector use
+    negative as well as positive coordinates. Its flag is saved as a buffer so existing model
+    loaders recover the architecture from the state dict; pre-flag checkpoints load as legacy.
+
+    ``linear_output`` removes the final ReLU and dropout, so the 128-d vector can use every
+    direction of the space before normalisation. With the legacy ReLU every embedding lies in the
+    non-negative orthant (all cosines >= 0). The flag is stored in the checkpoint as a buffer,
+    so every loader (build_index, evaluators, retrieve) picks it up with no code change, and
+    checkpoints saved before this option existed load as ``linear_output=False``.
     """
 
     def __init__(self, categorical_sizes: list[int], numeric_features: int,
-                 embedding_dims: list[int], tower_name: str, gated_id_column: int | None = None):
+                 embedding_dims: list[int], tower_name: str, gated_id_column: int | None = None,
+                 linear_output: bool = False):
         super().__init__()
         if len(categorical_sizes) != len(embedding_dims):
             raise ValueError(f"{tower_name}: categorical sizes and embedding dimensions differ")
@@ -52,6 +63,8 @@ class FeatureTower(nn.Module):
         if gated_id_column is not None and not 0 <= int(gated_id_column) < len(self.categorical_sizes):
             raise ValueError(f"{tower_name}: gated_id_column {gated_id_column} is outside the categorical fields")
         self.gated_id_column = None if gated_id_column is None else int(gated_id_column)
+        self.linear_output = bool(linear_output)
+        self.register_buffer("linear_output_flag", torch.tensor(self.linear_output, dtype=torch.bool))
         self.id_dropout = 0.0
         if self.gated_id_column is not None:
             self.register_buffer("id_keep", torch.ones(self.categorical_sizes[self.gated_id_column], dtype=torch.bool))
@@ -73,8 +86,13 @@ class FeatureTower(nn.Module):
         key = prefix + "id_keep"
         if self.gated_id_column is not None and key not in state_dict:
             state_dict[key] = self.id_keep.detach().clone()
+        # Checkpoints written before linear_output existed used the final ReLU.
+        flag_key = prefix + "linear_output_flag"
+        if flag_key not in state_dict:
+            state_dict[flag_key] = torch.tensor(False, dtype=torch.bool)
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys,
                                       unexpected_keys, error_msgs)
+        self.linear_output = bool(self.linear_output_flag.item())
 
     def forward(self, categorical: torch.Tensor, numeric: torch.Tensor) -> torch.Tensor:
         columns = [categorical[:, i].long() for i in range(len(self.embeddings))]
@@ -87,7 +105,9 @@ class FeatureTower(nn.Module):
             columns[self.gated_id_column] = ids
         pieces = [embedding(column) for embedding, column in zip(self.embeddings, columns)]
         pieces.append(numeric.float())
-        representation = self.network(torch.cat(pieces, dim=1))
+        features = torch.cat(pieces, dim=1)
+        # network[:7] ends at the last Linear, skipping its ReLU and Dropout.
+        representation = self.network[:7](features) if self.linear_output else self.network(features)
         return F.normalize(representation, p=2, dim=1, eps=1e-8)
 
 
@@ -135,16 +155,17 @@ class TwoTowerRetrieval(nn.Module):
     # ranking/freshness logic, not a static, cacheable retrieval item vector.
     VIDEO_NUMERIC_COLUMNS = [0, 8, 9]
 
-    def __init__(self, metadata: dict):
+    def __init__(self, metadata: dict, linear_output: bool = False):
         super().__init__()
         self.metadata_dataset = str(metadata.get("dataset", "unknown"))
         sizes = [int(x) for x in metadata["categorical_sizes"]]
         user_dims, video_dims = make_embedding_dims(metadata)
         user_sizes = [sizes[i] for i in self.USER_COLUMNS]
         video_sizes = [sizes[i] for i in self.VIDEO_COLUMNS]
-        self.user_tower = FeatureTower(user_sizes, len(self.USER_NUMERIC_COLUMNS), user_dims, "user")
+        self.user_tower = FeatureTower(user_sizes, len(self.USER_NUMERIC_COLUMNS), user_dims, "user",
+                                       linear_output=linear_output)
         self.video_tower = FeatureTower(video_sizes, len(self.VIDEO_NUMERIC_COLUMNS), video_dims, "video",
-                                        gated_id_column=0)
+                                        gated_id_column=0, linear_output=linear_output)
         self.user_categorical_sizes = user_sizes
         self.video_categorical_sizes = video_sizes
         self.user_embedding_dims = user_dims

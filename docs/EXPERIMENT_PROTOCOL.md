@@ -1,38 +1,35 @@
-# Ranking experiment protocol — fixed 4,096 batch size
+# Experiment protocol and promotion rules
 
-The agreed ranking batch size for the current Apple Silicon M4 development machine is **4,096**. The purpose of the immediate repeatability experiment is to measure variability across three seeds, not compare different batch sizes.
+## Data identity
 
-## Trial design
+Use `data/processed/ranking/1k_v3_catalog/` for the selected pipeline. Metadata records 10,381,632 train rows, 665,706 validation rows and 665,707 test rows, ordered by time. Schema fingerprint: `7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7`; prepared-data fingerprint: `a9e0107ff2818fba39e378746664cf1a1e70402af11ca0e62d85097c2da1195f`.
 
-- Batch size: 4,096 for every run
-- Seeds: 17, 42, 2026
-- Runs: 3 total, sequential (never concurrent on a 16 GB unified-memory Mac)
-- Architecture: 512 -> 256 -> 128, embedding dimension 32
-- Learning rate: 0.001
-- Maximum epochs: 20; early-stopping patience: 4; minimum delta: 0.0001
-- Evaluation batch: 4,096
-- Test evaluation: skipped during tuning
+Never mix V2 checkpoints/maps with V3 data. The V3 catalogue includes metadata for many video IDs that were OOV during training, changing evaluation behaviour for cold-start videos.
 
-PyTorch MPS operations are not guaranteed to be bitwise deterministic. Fixed seeds improve comparability but do not promise byte-identical outcomes across devices or software versions.
+## Rules for new experiments
 
-## Selection and interpretation
+1. Change one conceptual factor at a time.
+2. Use a new output directory; do not overwrite a selected checkpoint or index.
+3. Save run metadata, training history, and a machine-readable evaluation report.
+4. Compare against the same query set, seed, candidate pool, data fingerprint and candidate budget.
+5. Report candidate coverage separately from conditional ranking quality.
+6. Use user-cluster bootstrap confidence intervals for paired comparisons.
+7. Select on validation only. Keep the held-out test report frozen.
+8. Promote a new checkpoint only after it improves the protocol relevant to serving, not merely training loss or a sampled metric.
+9. Keep the source, checkpoint, data maps and index versioned together.
 
-1. Review mean validation mean AUC and per-target validation AUC for all three seeds.
-2. Review standard deviation across seeds; do not rely on the single highest run.
-3. Compare best epoch and elapsed time to detect unstable or prematurely stopped runs.
-4. If the variation is large, investigate sampling, target imbalance, and training stability before changing architecture.
-5. Evaluate the selected checkpoint on the held-out test split only after the validation review. Avoid repeated test-set tuning.
+## Current promotion decisions
 
-Batch size affects optimizer updates per epoch as well as throughput. For the 10.38 million-row KuaiRand-1K training split, batch 4,096 gives approximately 2,535 training updates per epoch.
+| Experiment | Result | Decision |
+|---|---|---|
+| Pool-softmax V3 | Validation active-pool hit@1%=0.1388; indexed pool hit@5%=0.3750 | Retained as previous reference |
+| Linear-output V3 | Validation active-pool hit@1%=0.1480; indexed pool hit@5%=0.3886 | Selected Model 1 |
+| Seed-43 in-batch / hybrid losses | Did not establish an improvement on the final active-pool protocol | Not promoted |
+| Time-decayed author affinity | No reliable candidate-union gain over static author affinity | Keep static author affinity |
+| Creator-history retrieval windows | Lifetime estimate was small/uncertain; short windows regressed candidate recovery | Do not replace static author affinity |
+| Model 2 V3 fine-tune | About +0.000119 validation AUC over rebaselined baseline | Not promoted |
+| Model 2 `is_like` score | Best observed top-100 score in validation confirmation; selected before test | Selected score |
 
-## Limitations
+## Final test policy
 
-- The fixed seed does not make all MPS kernels deterministic.
-- Three seeds provide a useful initial stability check, not a definitive statistical guarantee.
-- Offline AUC does not prove online user satisfaction or causal lift.
-- A production evaluation requires trustworthy impression logging, temporal validation, candidate retrieval metrics, ranking metrics, latency and online A/B testing.
-
-
-## Dataset identity
-
-Each trial records a SHA-256 fingerprint covering `metadata.json`, `id_maps.npz`, `train.npz`, `validation.npz`, and `test.npz`. A checkpoint cannot be resumed on a different prepared data version. The feature-schema fingerprint is also stored in the ranking checkpoint and checked by the offline recommender before scoring a dataset.
+The final 20,000-query test was already run with the selected pipeline and score. Treat `reports/experiments/hybrid_ranking_linear_output_v3_k3000_final_test.json` as frozen evidence. Do not repeatedly evaluate new variants against this same test split to select winners.

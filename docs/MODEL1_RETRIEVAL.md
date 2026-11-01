@@ -1,54 +1,61 @@
-# Model 1 — two-tower retrieval implementation
+# Model 1 — two-tower retrieval
 
-## Scope
+## Selected model
 
-Model 1 is an offline retrieval baseline built against the project's prepared KuaiRand V2 schema. It is designed to retrieve a few hundred candidate video IDs for Model 2. It does not fetch media, serve a live feed, or build an approximate-nearest-neighbour (ANN) index.
+- Checkpoint: `artifacts/retrieval/v3_linear_output_seed42_14ep/best_model.pt`
+- Index: `data/indexes/retrieval/1k_v3_v3_linear_output_seed42_14ep/`
+- Dataset: `data/processed/ranking/1k_v3_catalog/`
+- Architecture: independent user and video towers, each 512 → 256 → 128, with L2-normalized 128-dimensional output.
+- Output layer: `linear_output=true`; the last ReLU and dropout are omitted before L2 normalization.
+- Device used: Apple MPS.
 
-## Architecture
+The earlier pool-softmax V3 checkpoint, `artifacts/retrieval/v3_full_seed42_12ep/best_model.pt`, is retained only as a comparison/rollback artifact. Its metadata says 14 epochs even though the directory name says `12ep`.
 
-The user and video towers are separate networks. Each uses three hidden layers (512 -> 256 -> 128), ReLU and dropout rates of 0.20, 0.15 and 0.10. Both emit L2-normalized 128-dimensional vectors; dot product is the retrieval score.
+## Training configuration
 
-The user tower uses user ID, tab, 26 user profile categorical features, hour-of-day sin/cos and four user numeric profile values. The video tower uses video ID, seven video metadata categorical fields, log duration, log width and log height. The video ID embedding is 16-dimensional because the KuaiRand-1K catalogue contains nearly four million videos. Video age is intentionally excluded from the cacheable retrieval item vector; Model 2 keeps the per-impression video-age feature.
+The selected run used seed 42, 14 epochs, batch size 512, 1,024 shared negatives, 24-hour pools, temperature 0.07, log-Q strength 1.0, ID minimum count 20, ID dropout 0.2, learning rate 0.001, minimum learning rate 0.00005, and weight decay 0.00001. Validation used 5,000 queries in three 24-hour windows, with a 50,000-video pool cap for checkpoint selection. Best epoch: 14. Best training-validation pool hit@1%: 0.1480.
 
-For the uploaded KuaiRand-1K metadata, the current model has 92,732,511 parameters. FP32 weights are about 0.35 GiB; a simple weights + gradients + two AdamW states estimate is about 1.38 GiB. This estimate excludes the prepared arrays, activations, temporary buffers, index, and operating-system/MPS memory.
+The model records 92,732,511 parameters in the run log. It retains a dedicated video-ID embedding for 60,183 video IDs; 27.4% of training positive events occur on those IDs. Other videos are represented using available metadata and OOV ID handling.
 
-## Training objective
+## Same-protocol validation comparison
 
-Training uses a pairwise softplus ranking loss. Each positive interaction is compared with two sampled negative video IDs by default. Positive strengths are weighted as follows:
+The indexed evaluation used the same 5,000 queries, seed 314159, 24-hour exposure windows and un-capped active pools (66,267–255,916 videos per window).
 
-| Event | Weight |
-|---|---:|
-| Click | 0.25 |
-| Like | 1.00 |
-| Follow | 1.50 |
-| Comment | 1.25 |
-| Forward | 1.50 |
-| Long view | 2.00 |
-| Profile entry | 0.75 |
-| Complete view | 2.00 |
+| Metric | Original V3 | Linear output |
+|---|---:|---:|
+| Hit@1% | 0.1410 | **0.1502** |
+| Hit@5% | 0.3750 | **0.3886** |
+| Hit@20% | 0.7090 | **0.7236** |
+| Mean percentile | 0.16391 | **0.15443** |
+| Recall@100 | 0.0180 | **0.0208** |
+| Recall@1,000 | 0.1016 | **0.1086** |
 
-A `short_view` row subtracts 0.5 from its positive strength. A click-only short skip is therefore not selected as a positive retrieval example, while stronger engagement can outweigh this penalty. `is_hate` and `short_view` pairs can also be sampled as explicit hard negatives, unless that user-video pair is already represented as a positive in the training split.
+The new checkpoint improved every displayed metric. These are active-pool metrics and must not be compared directly with full-catalogue Recall@K from older evaluation scripts.
 
-Random unobserved catalogue items are implicit sampled negatives, not verified dislikes. This creates exposure/label uncertainty: the dataset does not prove that a user saw and rejected every randomly sampled item. The model should be evaluated and ultimately retrained with trustworthy impression logging and exposure-aware negative sampling when those data are available.
+## Hybrid candidate union
 
-The agreed training batch size is 4,096 positive interaction rows. With two negatives per positive, a full batch runs the video tower for 4,096 positives plus 8,192 negatives (12,288 item examples total). This is pairwise sampled-negative training, not a 4,096-by-4,096 in-batch similarity matrix.
+With a per-source top-K of 3,000, original V3 + static author affinity recovered 35.74% of validation targets; linear output + static author affinity recovered 36.02%. At K=1,000, union recovery was 19.64% versus 20.04%. The union is deduplicated and can contain up to 2K candidates.
 
-## Evaluation
+## Build the selected video index
 
-Validation samples up to 512 positive interactions; each positive is ranked against 500 sampled catalogue negatives by default. The trainer reports sampled Recall@20, sampled Recall@100, MRR and median sampled rank. These values are conditional on the sampled candidate protocol and are **not full-catalogue recall**. All training-seed repeats use one fixed evaluation seed (default `314159`), so they are compared on the exact same validation queries and sampled negatives. The held-out sampled test candidate set uses a separate fixed seed derived from the evaluation seed.
+```bash
+python -m model1_retrieval.build_index \
+  --data-dir data/processed/ranking/1k_v3_catalog \
+  --model-path artifacts/retrieval/v3_linear_output_seed42_14ep/best_model.pt \
+  --output-dir data/indexes/retrieval/1k_v3_v3_linear_output_seed42_14ep \
+  --batch-size 2048
+```
 
-Three sequential training seeds (17, 42, 2026) are the default repeatability check; all share `--eval-seed 314159`. This is an initial stability check, not a statistical guarantee. MPS operations may not be bitwise deterministic.
+The resulting index contains 4,371,868 vectors × 128 dimensions and uses approximately 1.04 GiB for float16 embeddings. The builder also writes an ID array and metadata; the full binary index is required for retrieval.
 
-## Index and query path
+## Known limitations
 
-`build_index.py` encodes all mapped catalogue videos in chunks and stores float16 vectors plus raw video IDs. For 3.93 million videos, the vector matrix is about 1.0 GB decimal (~0.94 GiB). The builder verifies the dataset schema and checkpoint hash, refuses to silently overwrite a populated index, and preserves a timestamped backup when `--overwrite` is explicitly supplied.
+- The current user tower uses user ID, static profile features and request context; it does not encode an ordered recent-watch session sequence.
+- Static user feature timestamps are not available, so exact as-of freshness of those values cannot be verified.
+- The 24-hour pool evaluation has within-window lookahead and is not strict point-in-time serving.
+- The current flat chunk-scanned vector index is an offline baseline, not a production ANN service.
+- Candidate coverage is still about 33.5% for the final hybrid on the held-out test set; most held-out targets are not in the candidate slate and cannot be fixed by the ranker.
 
-`retrieve.py` computes the user vector and performs exact chunked dot-product scanning over the saved item vectors. It can exclude raw video IDs from a text file. This is a local exact baseline, not ANN: catalogue latency and throughput must be benchmarked, and a production-scale service should evaluate an ANN index such as FAISS or an equivalent vector-search system.
+## Experiments not promoted
 
-The retrieval output CSV contains raw `video_id` values and similarity scores. Pass that file to `model2_ranking.recommend_v2 --candidate-file` to produce the two-stage offline ranking result.
-
-## Reproducibility and limitations
-
-Prepared data are content-fingerprinted. A resume is rejected if the schema, ID maps, or train/validation/test arrays have changed. Each repeat has its own seed folder, checkpoint and log. The full KuaiRand-1K MPS training runs have not yet been executed from this implementation; first run the documented smoke test on the M4 and inspect memory pressure before running all three full repeats.
-
-Before calling this production-ready, the project still needs online impression/action logging, exposure-aware evaluation, user/item freshness, authoritative seen/policy filters, ANN indexing, service APIs, latency/load tests, monitoring, privacy controls, and online A/B tests.
+The seed-43 in-batch and hybrid-loss trials, plus the one-epoch hybrid smoke trial, were not promoted. A hybrid sampled-negative experiment reported full-catalogue Recall@1,000 of 0.0096 versus 0.0104 in the earlier V3 catalogue baseline report; those experiments were not validated as an improvement on the final active-pool protocol. The final linear-output V3 run is the selected retrieval checkpoint.

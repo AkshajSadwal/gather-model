@@ -1,0 +1,1003 @@
+{
+  "split": "validation",
+  "data_dir": "data/processed/ranking/1k_v3_catalog",
+  "history_dir": "data/processed/history/creator_history_v1",
+  "history_artifact_metadata": {
+    "artifact_version": 1,
+    "artifact": "creator_history.npz",
+    "data_dir": "data/processed/ranking/1k_v3_catalog",
+    "schema_fingerprint": "7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7",
+    "prepared_data_fingerprint": "a9e0107ff2818fba39e378746664cf1a1e70402af11ca0e62d85097c2da1195f",
+    "row_times_sha256": "50995f4bec8d0936f98529a7a8e410bae88bcfbad8084026003927100d881534",
+    "num_users": 1001,
+    "num_authors": 1300015,
+    "total_source_rows": 11713045,
+    "positive_creator_events_by_split": {
+      "train": 3907757,
+      "validation": 219944,
+      "test": 219384
+    },
+    "total_positive_creator_events": 4347085,
+    "minimum_event_time_ms": 1649340003236,
+    "maximum_event_time_ms": 1652025129022,
+    "split_codes": {
+      "train": 0,
+      "validation": 1,
+      "test": 2
+    },
+    "event_definition": "Same positive weights and short_view penalty as model1_retrieval.data.positive_rows; explicit is_hate rows excluded; strength clipped to [0.25, 5.0] without split-level normalisation.",
+    "time_policy": "Queries must use event_time_ms < query_time_ms. Events at exactly the query timestamp are excluded together; this prevents same-time and self-event leakage.",
+    "validation_test_policy": "Validation/test events are stored for chronological replay only. A query may use an earlier event from those splits only when its timestamp is strictly before the query.",
+    "author_policy": "Only known nonzero author-vocabulary IDs are stored; OOV/missing authors are excluded."
+  },
+  "model_path": "artifacts/retrieval/v3_full_seed42_12ep/best_model.pt",
+  "index_dir": "data/indexes/retrieval/1k_v3_v3_seed42_14ep",
+  "queries": 5000,
+  "unique_users": 815,
+  "cold_start_query_fraction": 0.544,
+  "pool_hours": 24.0,
+  "pool_sizes": [
+    66267,
+    255916,
+    127499
+  ],
+  "candidate_budget_definition": "Per source top-K; Model 1 and creator-history candidates are deduplicated, so the union can contain up to 2K.",
+  "creator_history_asof_policy": "Only events with event_time_ms < query_time_ms are eligible. This supports chronological replay using earlier observed validation/test events without exposing same-time or future events.",
+  "pool_lookahead_caveat": "The 24-hour active pool is built from all exposures in each validation window, including exposures later than an individual query timestamp. This matches the existing evaluator but is optimistic versus a strict live-as-of catalogue.",
+  "creator_tie_break": "Creator score descending, then Model 1 similarity descending, then catalogue item index ascending.",
+  "variants": {
+    "static_train_author": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.1394,
+          "ci95_user_cluster": [
+            0.128536396839514,
+            0.15142291510845174
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.2016,
+          "ci95_user_cluster": [
+            0.18838892587639422,
+            0.21498479206077462
+          ]
+        },
+        "creator_only": {
+          "value": 0.1,
+          "ci95_user_cluster": [
+            0.09088915551396709,
+            0.10999977516518446
+          ]
+        },
+        "model_only": {
+          "value": 0.0622,
+          "ci95_user_cluster": [
+            0.05516453102556002,
+            0.06925252601573338
+          ]
+        },
+        "both": {
+          "value": 0.0394,
+          "ci95_user_cluster": [
+            0.033144643349511595,
+            0.045608650544697725
+          ]
+        },
+        "mean_creator_candidates": 985.8426,
+        "mean_union_candidates": 1860.275,
+        "mean_overlap_candidates": 125.5676,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.1577205882352941,
+            "union_hit": 0.19926470588235295,
+            "creator_only": 0.12095588235294118,
+            "model_only": 0.04154411764705882
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.11754385964912281,
+            "union_hit": 0.2043859649122807,
+            "creator_only": 0.075,
+            "model_only": 0.0868421052631579
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.2446,
+          "ci95_user_cluster": [
+            0.2312649109362235,
+            0.2598759031319116
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.3554,
+          "ci95_user_cluster": [
+            0.3408720771570275,
+            0.37090394744939287
+          ]
+        },
+        "creator_only": {
+          "value": 0.1512,
+          "ci95_user_cluster": [
+            0.1405470153723298,
+            0.16165099155912052
+          ]
+        },
+        "model_only": {
+          "value": 0.1108,
+          "ci95_user_cluster": [
+            0.10172552387629857,
+            0.12071094112721191
+          ]
+        },
+        "both": {
+          "value": 0.0934,
+          "ci95_user_cluster": [
+            0.08428238819362259,
+            0.10375577980847195
+          ]
+        },
+        "mean_creator_candidates": 2737.9062,
+        "mean_union_candidates": 5178.1706,
+        "mean_overlap_candidates": 559.7356,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.2676470588235294,
+            "union_hit": 0.3452205882352941,
+            "creator_only": 0.17941176470588235,
+            "model_only": 0.07757352941176471
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.21710526315789475,
+            "union_hit": 0.3675438596491228,
+            "creator_only": 0.11754385964912281,
+            "model_only": 0.15043859649122807
+          }
+        }
+      }
+    },
+    "history_lifetime_asof": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.1316,
+          "ci95_user_cluster": [
+            0.12113421696603303,
+            0.1424803038754889
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.1974,
+          "ci95_user_cluster": [
+            0.18498010744373747,
+            0.21152515338904535
+          ]
+        },
+        "creator_only": {
+          "value": 0.0958,
+          "ci95_user_cluster": [
+            0.08706757727756757,
+            0.10495983398109866
+          ]
+        },
+        "model_only": {
+          "value": 0.0658,
+          "ci95_user_cluster": [
+            0.05840901812828412,
+            0.0732181602702495
+          ]
+        },
+        "both": {
+          "value": 0.0358,
+          "ci95_user_cluster": [
+            0.02991698637990212,
+            0.041661934168786004
+          ]
+        },
+        "mean_creator_candidates": 988.8178,
+        "mean_union_candidates": 1876.0746,
+        "mean_overlap_candidates": 112.7432,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.1488970588235294,
+            "union_hit": 0.19301470588235295,
+            "creator_only": 0.11470588235294117,
+            "model_only": 0.04411764705882353
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.11096491228070175,
+            "union_hit": 0.2026315789473684,
+            "creator_only": 0.07324561403508772,
+            "model_only": 0.09166666666666666
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.2458,
+          "ci95_user_cluster": [
+            0.23265433083519257,
+            0.26104509611785126
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.3594,
+          "ci95_user_cluster": [
+            0.3439093477096043,
+            0.37531005128530337
+          ]
+        },
+        "creator_only": {
+          "value": 0.1552,
+          "ci95_user_cluster": [
+            0.14466713665478148,
+            0.16666829937304073
+          ]
+        },
+        "model_only": {
+          "value": 0.1136,
+          "ci95_user_cluster": [
+            0.10393526714141575,
+            0.12340316303120301
+          ]
+        },
+        "both": {
+          "value": 0.0906,
+          "ci95_user_cluster": [
+            0.08115979521024201,
+            0.10023055592384798
+          ]
+        },
+        "mean_creator_candidates": 2770.4228,
+        "mean_union_candidates": 5261.3552,
+        "mean_overlap_candidates": 509.0676,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.27058823529411763,
+            "union_hit": 0.3488970588235294,
+            "creator_only": 0.18308823529411763,
+            "model_only": 0.07830882352941176
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.2162280701754386,
+            "union_hit": 0.3719298245614035,
+            "creator_only": 0.12192982456140351,
+            "model_only": 0.15570175438596492
+          }
+        }
+      }
+    },
+    "history_1d": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.0754,
+          "ci95_user_cluster": [
+            0.06683432922454195,
+            0.08425740551731759
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.1608,
+          "ci95_user_cluster": [
+            0.14954004609281507,
+            0.17257258130664685
+          ]
+        },
+        "creator_only": {
+          "value": 0.0592,
+          "ci95_user_cluster": [
+            0.05220646654918223,
+            0.06625164841574085
+          ]
+        },
+        "model_only": {
+          "value": 0.0854,
+          "ci95_user_cluster": [
+            0.07695369541664704,
+            0.09428648546401654
+          ]
+        },
+        "both": {
+          "value": 0.0162,
+          "ci95_user_cluster": [
+            0.012110688735828682,
+            0.0203036799224516
+          ]
+        },
+        "mean_creator_candidates": 601.9592,
+        "mean_union_candidates": 1549.7596,
+        "mean_overlap_candidates": 52.1996,
+        "queries_with_prior_creator_in_pool": 0.9988,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.07720588235294118,
+            "union_hit": 0.13823529411764707,
+            "creator_only": 0.059926470588235296,
+            "model_only": 0.06102941176470588
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.07324561403508772,
+            "union_hit": 0.18771929824561404,
+            "creator_only": 0.058333333333333334,
+            "model_only": 0.11447368421052631
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.0804,
+          "ci95_user_cluster": [
+            0.0713181065107298,
+            0.08975915679755186
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.2552,
+          "ci95_user_cluster": [
+            0.24174305616799444,
+            0.2696281682950712
+          ]
+        },
+        "creator_only": {
+          "value": 0.051,
+          "ci95_user_cluster": [
+            0.04390725365138917,
+            0.05765060092158183
+          ]
+        },
+        "model_only": {
+          "value": 0.1748,
+          "ci95_user_cluster": [
+            0.16314985113762712,
+            0.18624189958638038
+          ]
+        },
+        "both": {
+          "value": 0.0294,
+          "ci95_user_cluster": [
+            0.023661326082943183,
+            0.0353525422553641
+          ]
+        },
+        "mean_creator_candidates": 758.763,
+        "mean_union_candidates": 3625.4418,
+        "mean_overlap_candidates": 133.3212,
+        "queries_with_prior_creator_in_pool": 0.9988,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.08235294117647059,
+            "union_hit": 0.21654411764705883,
+            "creator_only": 0.05073529411764706,
+            "model_only": 0.13419117647058823
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.0780701754385965,
+            "union_hit": 0.3013157894736842,
+            "creator_only": 0.05131578947368421,
+            "model_only": 0.22324561403508772
+          }
+        }
+      }
+    },
+    "history_3d": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.111,
+          "ci95_user_cluster": [
+            0.10092708589072676,
+            0.12208682897930323
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.1866,
+          "ci95_user_cluster": [
+            0.17494523423132805,
+            0.19984286865431103
+          ]
+        },
+        "creator_only": {
+          "value": 0.085,
+          "ci95_user_cluster": [
+            0.0770629743253139,
+            0.09402724237154225
+          ]
+        },
+        "model_only": {
+          "value": 0.0756,
+          "ci95_user_cluster": [
+            0.06766228887261064,
+            0.08380031635168447
+          ]
+        },
+        "both": {
+          "value": 0.026,
+          "ci95_user_cluster": [
+            0.020688246275228066,
+            0.031078132906380153
+          ]
+        },
+        "mean_creator_candidates": 832.6284,
+        "mean_union_candidates": 1749.5518,
+        "mean_overlap_candidates": 83.0766,
+        "queries_with_prior_creator_in_pool": 0.9996,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.12242647058823529,
+            "union_hit": 0.175,
+            "creator_only": 0.09669117647058824,
+            "model_only": 0.052573529411764706
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.09736842105263158,
+            "union_hit": 0.20043859649122808,
+            "creator_only": 0.07105263157894737,
+            "model_only": 0.10307017543859649
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.1442,
+          "ci95_user_cluster": [
+            0.13315148451298245,
+            0.15668384095104046
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.2978,
+          "ci95_user_cluster": [
+            0.28380403291835493,
+            0.31297351904588644
+          ]
+        },
+        "creator_only": {
+          "value": 0.0936,
+          "ci95_user_cluster": [
+            0.08508563969786938,
+            0.10311901323671553
+          ]
+        },
+        "model_only": {
+          "value": 0.1536,
+          "ci95_user_cluster": [
+            0.142885244575858,
+            0.164501538786774
+          ]
+        },
+        "both": {
+          "value": 0.0506,
+          "ci95_user_cluster": [
+            0.0433125205689838,
+            0.058355565638764054
+          ]
+        },
+        "mean_creator_candidates": 1444.5274,
+        "mean_union_candidates": 4200.5336,
+        "mean_overlap_candidates": 243.9938,
+        "queries_with_prior_creator_in_pool": 0.9996,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.15919117647058822,
+            "union_hit": 0.2702205882352941,
+            "creator_only": 0.10441176470588236,
+            "model_only": 0.11102941176470588
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.12631578947368421,
+            "union_hit": 0.3307017543859649,
+            "creator_only": 0.08070175438596491,
+            "model_only": 0.2043859649122807
+          }
+        }
+      }
+    },
+    "history_7d": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.13,
+          "ci95_user_cluster": [
+            0.11912924938758289,
+            0.14141415592389717
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.1988,
+          "ci95_user_cluster": [
+            0.1861807052704092,
+            0.21255575905661933
+          ]
+        },
+        "creator_only": {
+          "value": 0.0972,
+          "ci95_user_cluster": [
+            0.08877291953283944,
+            0.10630108442557533
+          ]
+        },
+        "model_only": {
+          "value": 0.0688,
+          "ci95_user_cluster": [
+            0.061564757827710814,
+            0.07683283512103628
+          ]
+        },
+        "both": {
+          "value": 0.0328,
+          "ci95_user_cluster": [
+            0.026595637526360006,
+            0.03823644112498028
+          ]
+        },
+        "mean_creator_candidates": 940.9504,
+        "mean_union_candidates": 1839.2598,
+        "mean_overlap_candidates": 101.6906,
+        "queries_with_prior_creator_in_pool": 0.9996,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.14338235294117646,
+            "union_hit": 0.19080882352941175,
+            "creator_only": 0.1125,
+            "model_only": 0.04742647058823529
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.11403508771929824,
+            "union_hit": 0.20833333333333334,
+            "creator_only": 0.07894736842105263,
+            "model_only": 0.09429824561403509
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.1978,
+          "ci95_user_cluster": [
+            0.18574825227211625,
+            0.21184879747652252
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.3328,
+          "ci95_user_cluster": [
+            0.31930607104984093,
+            0.3480977520875598
+          ]
+        },
+        "creator_only": {
+          "value": 0.1286,
+          "ci95_user_cluster": [
+            0.11843768108439695,
+            0.13865165461319306
+          ]
+        },
+        "model_only": {
+          "value": 0.135,
+          "ci95_user_cluster": [
+            0.12497509118362415,
+            0.14601092572226015
+          ]
+        },
+        "both": {
+          "value": 0.0692,
+          "ci95_user_cluster": [
+            0.06092027027027027,
+            0.07805216374988466
+          ]
+        },
+        "mean_creator_candidates": 2137.7904,
+        "mean_union_candidates": 4775.735,
+        "mean_overlap_candidates": 362.0554,
+        "queries_with_prior_creator_in_pool": 0.9996,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.21838235294117647,
+            "union_hit": 0.3136029411764706,
+            "creator_only": 0.14779411764705883,
+            "model_only": 0.09522058823529411
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.17324561403508773,
+            "union_hit": 0.3557017543859649,
+            "creator_only": 0.10570175438596491,
+            "model_only": 0.1824561403508772
+          }
+        }
+      }
+    },
+    "history_14d": {
+      "1000": {
+        "creator_hit": {
+          "value": 0.1306,
+          "ci95_user_cluster": [
+            0.11994111598217037,
+            0.14167685035433622
+          ]
+        },
+        "model_hit": {
+          "value": 0.1016,
+          "ci95_user_cluster": [
+            0.09169939293927415,
+            0.11122760816593322
+          ]
+        },
+        "union_hit": {
+          "value": 0.1976,
+          "ci95_user_cluster": [
+            0.1854384070737356,
+            0.2108541691128419
+          ]
+        },
+        "creator_only": {
+          "value": 0.096,
+          "ci95_user_cluster": [
+            0.0875805700020803,
+            0.1051616633992706
+          ]
+        },
+        "model_only": {
+          "value": 0.067,
+          "ci95_user_cluster": [
+            0.05963060523478173,
+            0.07459194249441498
+          ]
+        },
+        "both": {
+          "value": 0.0346,
+          "ci95_user_cluster": [
+            0.02846595520361648,
+            0.04063946000477957
+          ]
+        },
+        "mean_creator_candidates": 974.7312,
+        "mean_union_candidates": 1865.9438,
+        "mean_overlap_candidates": 108.7874,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.15220588235294116,
+            "union_hit": 0.19779411764705881,
+            "creator_only": 0.11948529411764706,
+            "model_only": 0.045588235294117645
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.10482456140350878,
+            "union_hit": 0.19736842105263158,
+            "creator_only": 0.06798245614035088,
+            "model_only": 0.0925438596491228
+          }
+        }
+      },
+      "3000": {
+        "creator_hit": {
+          "value": 0.228,
+          "ci95_user_cluster": [
+            0.21458760513856664,
+            0.24170115381588855
+          ]
+        },
+        "model_hit": {
+          "value": 0.2042,
+          "ci95_user_cluster": [
+            0.19150986321184954,
+            0.21668118024259458
+          ]
+        },
+        "union_hit": {
+          "value": 0.3526,
+          "ci95_user_cluster": [
+            0.3377589438258513,
+            0.3684333737322192
+          ]
+        },
+        "creator_only": {
+          "value": 0.1484,
+          "ci95_user_cluster": [
+            0.1382052286490096,
+            0.15836081881611846
+          ]
+        },
+        "model_only": {
+          "value": 0.1246,
+          "ci95_user_cluster": [
+            0.11522382220441976,
+            0.13477917501159936
+          ]
+        },
+        "both": {
+          "value": 0.0796,
+          "ci95_user_cluster": [
+            0.07077631709065738,
+            0.08845143364443822
+          ]
+        },
+        "mean_creator_candidates": 2527.779,
+        "mean_union_candidates": 5079.8356,
+        "mean_overlap_candidates": 447.9434,
+        "queries_with_prior_creator_in_pool": 1.0,
+        "cohorts": {
+          "cold_start": {
+            "queries": 2720,
+            "creator_hit": 0.25625,
+            "union_hit": 0.34301470588235294,
+            "creator_only": 0.17720588235294119,
+            "model_only": 0.08676470588235294
+          },
+          "seen_id": {
+            "queries": 2280,
+            "creator_hit": 0.19429824561403508,
+            "union_hit": 0.36403508771929827,
+            "creator_only": 0.11403508771929824,
+            "model_only": 0.16973684210526316
+          }
+        }
+      }
+    }
+  },
+  "paired_differences_vs_static_train_author": {
+    "history_lifetime_asof": {
+      "1000": {
+        "creator_hit_delta": {
+          "value": -0.0078,
+          "ci95_user_cluster": [
+            -0.013147067856745822,
+            -0.002341808404438601
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0042,
+          "ci95_user_cluster": [
+            -0.009204645922072206,
+            0.0010162756638243625
+          ]
+        }
+      },
+      "3000": {
+        "creator_hit_delta": {
+          "value": 0.0012,
+          "ci95_user_cluster": [
+            -0.00528473580468235,
+            0.007251647287406397
+          ]
+        },
+        "union_hit_delta": {
+          "value": 0.004,
+          "ci95_user_cluster": [
+            -0.0015672272964300897,
+            0.009911829771250309
+          ]
+        }
+      }
+    },
+    "history_1d": {
+      "1000": {
+        "creator_hit_delta": {
+          "value": -0.064,
+          "ci95_user_cluster": [
+            -0.0752490702300753,
+            -0.052640856732176805
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0408,
+          "ci95_user_cluster": [
+            -0.05011112775196569,
+            -0.031480162372047815
+          ]
+        }
+      },
+      "3000": {
+        "creator_hit_delta": {
+          "value": -0.1642,
+          "ci95_user_cluster": [
+            -0.17736037397692295,
+            -0.15109280128258604
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.1002,
+          "ci95_user_cluster": [
+            -0.11125112043101161,
+            -0.09016354470003554
+          ]
+        }
+      }
+    },
+    "history_3d": {
+      "1000": {
+        "creator_hit_delta": {
+          "value": -0.0284,
+          "ci95_user_cluster": [
+            -0.038557296226986,
+            -0.018715446506525138
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.015,
+          "ci95_user_cluster": [
+            -0.023370567401952168,
+            -0.006529591641963143
+          ]
+        }
+      },
+      "3000": {
+        "creator_hit_delta": {
+          "value": -0.1004,
+          "ci95_user_cluster": [
+            -0.11300329964315613,
+            -0.08856546331738631
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0576,
+          "ci95_user_cluster": [
+            -0.06780333680012031,
+            -0.04744795569839166
+          ]
+        }
+      }
+    },
+    "history_7d": {
+      "1000": {
+        "creator_hit_delta": {
+          "value": -0.0094,
+          "ci95_user_cluster": [
+            -0.017887411454575827,
+            0.0003883892656832366
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0028,
+          "ci95_user_cluster": [
+            -0.011017059171140084,
+            0.005236236251065778
+          ]
+        }
+      },
+      "3000": {
+        "creator_hit_delta": {
+          "value": -0.0468,
+          "ci95_user_cluster": [
+            -0.05784523148345936,
+            -0.03633805037112442
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0226,
+          "ci95_user_cluster": [
+            -0.0318162397159927,
+            -0.013188266979813828
+          ]
+        }
+      }
+    },
+    "history_14d": {
+      "1000": {
+        "creator_hit_delta": {
+          "value": -0.0088,
+          "ci95_user_cluster": [
+            -0.016204423216500504,
+            -0.0010395347150687548
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.004,
+          "ci95_user_cluster": [
+            -0.010505559192224586,
+            0.0029250490467263787
+          ]
+        }
+      },
+      "3000": {
+        "creator_hit_delta": {
+          "value": -0.0166,
+          "ci95_user_cluster": [
+            -0.025308119778377727,
+            -0.008647179710078619
+          ]
+        },
+        "union_hit_delta": {
+          "value": -0.0028,
+          "ci95_user_cluster": [
+            -0.009961647053359035,
+            0.0038896960746280665
+          ]
+        }
+      }
+    }
+  },
+  "elapsed_seconds": 100.13646570900164
+}

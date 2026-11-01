@@ -42,6 +42,26 @@ def relevance_gains(labels: np.ndarray, target_names: list[str]) -> np.ndarray:
     return np.maximum(gain, 0.0)
 
 
+def action_only_relevance_gains(labels: np.ndarray, target_names: list[str]) -> np.ndarray:
+    """Duration-independent gains from explicit engagement actions only.
+
+    Excludes long_view, complete_view, short_view and watch time.
+    Explicit hate feedback suppresses gain, matching relevance_gains().
+    """
+    index = {name: i for i, name in enumerate(target_names)}
+    action_weights = {
+        "is_click": 0.25, "is_like": 1.0, "is_follow": 1.5,
+        "is_comment": 1.25, "is_forward": 1.5,
+    }
+    gain = np.zeros(labels.shape[0], dtype=np.float32)
+    for name, weight in action_weights.items():
+        if name in index:
+            gain += labels[:, index[name]] * np.float32(weight)
+    if "is_hate" in index:
+        gain[labels[:, index["is_hate"]] > 0] = 0.0
+    return np.maximum(gain, 0.0)
+
+
 # --------------------------------------------------------------------------- bootstrap
 def bootstrap_mean_ci(values: np.ndarray, n_boot: int = 1000, seed: int = 0,
                       alpha: float = 0.05) -> tuple[float, float, float]:

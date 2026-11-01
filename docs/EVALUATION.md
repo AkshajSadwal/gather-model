@@ -1,50 +1,47 @@
-# Evaluation toolkit (Phase 1: measure before changing the models)
+# Evaluation protocol and retained reports
 
-These scripts answer "how good is the model really?" with confidence intervals and
-baselines. They read checkpoints but never change them. Run from the project root with
-the virtual environment active. Validation is the default; `--allow-test` is required to
-touch the held-out test split, so keep it for the final report.
+## Protocols are not interchangeable
 
-## 1. Data diagnostics (no model needed, NumPy only)
+This project used several evaluation protocols during development. Their metrics must not be compared as if they measured the same task.
 
-    python -m scripts.diagnose_data --output reports/experiments/data_diagnostics.json
+1. **Sampled retrieval validation:** a positive is compared with a fixed sample of catalogue negatives. This is useful for quick training checks but is not full-catalogue or active-pool recall.
+2. **Full-catalogue ranking:** a held-out positive is ranked against the full 4,371,868-video catalogue. Historical reports exist for this protocol.
+3. **24-hour active exposure pools:** the positive competes against videos exposed within the same 24-hour time window. This is the protocol used for final retrieval and hybrid candidate evaluation.
+4. **Hybrid reranking:** Model 1 and author-affinity independently contribute per-source top-K lists; the union is deduplicated and Model 2 ranks candidates. Candidate budget is per source, so the union can contain up to 2K.
 
-Shows how many validation/test rows use videos never seen in training (these lose all
-video metadata), how concentrated exposure is on popular videos, how often a
-(user, video) pair repeats, event-rate drift between splits, and whether
-complete/short/long-view labels mostly track video duration.
+## 24-hour pool caveat
 
-## 2. Ranking evaluation
+The evaluator builds pools from all exposures in each 24-hour window. A pool may include a video exposed later than an individual query timestamp in that window. This is a within-window lookahead and may overstate what a strict point-in-time serving system can retrieve. A causal replay using only catalogue items available at each query time is still required before production claims.
 
-    python -m scripts.evaluate_ranking \
-        --model-path artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model2_ranking/best_model.pt \
-        --output reports/experiments/ranking_eval_original.json
+## Metric meanings
 
-Run it again with the fine-tuned checkpoint (`parallel_finetune10_.../model2_ranking/best_model.pt`)
-to compare. It reports, per behaviour: ROC-AUC, PR-AUC, per-user AUC (GAUC) with a 95% CI over
-users, and calibration (`pred/base` near 1.0 and a small ECE mean the probabilities are honest).
-It also reports watch-time fit, and NDCG@10/20 when re-ranking each user's logged impressions
-(blocks of 30 consecutive impressions), comparing the current hand-weighted score with every
-single probability, a popularity baseline and random order. A `*` marks a difference whose
-95% interval excludes zero.
+- **Candidate coverage / recovery:** fraction of all evaluated query targets present in a candidate source or union. A target absent from candidates cannot be recovered by the ranker.
+- **Mean target percentile:** position of a target within the candidate set, normalized from 0 (first/best) to 1 (last/worst); 0.5 is random expectation. The score-variant percentile is conditional on the target being in the slate and the slate containing more than one item.
+- **Hit@K:** whether the target's rank is at most K. The score-variant `hit_at_100` is evaluated across all queries, so a target omitted by candidate generation counts as a miss.
+- **MRR:** reciprocal rank, with unrecovered targets contributing zero.
+- **Confidence intervals:** user-cluster bootstrap intervals, to preserve dependence among queries from the same user.
 
-Limit: logged impressions were chosen by the original production recommender, so this measures
-re-ordering of items that were actually shown, not discovery of unseen items.
+## Main retained reports
 
-## 3. Retrieval evaluation (full catalogue)
+| Report | Purpose |
+|---|---|
+| `retrieval_pools_original_v3_paired.json` | Original V3 active-pool baseline and candidate union |
+| `retrieval_pools_linear_output_v3_paired.json` | Linear-output Model 1 active-pool result |
+| `hybrid_ranking_original_v3_k3000.json` | Original V3 + author union with frozen Model 2 |
+| `hybrid_ranking_linear_output_v3_k3000_score_ablation.json` | Expanded 5,000-query score ablation; supersedes the preliminary same-query report |
+| `hybrid_ranking_linear_output_v3_k3000_score_confirmation20k.json` | 20,000-query validation score confirmation and paired comparisons |
+| `hybrid_ranking_linear_output_v3_k3000_final_test.json` | Final held-out test, run after formula selection |
+| `creator_history_validation_20261101.json` | As-of creator-history experiments; static author affinity retained |
+| `ranking_audit_1k_v3_catalog.json` | V3-catalogue Model 2 audit |
+| `data_diagnostics_1k_v3_catalog.json` | V3 prepared-data diagnostics |
+| `author_budget_1k_3k_5k.json` | Candidate-budget exploration |
 
-    python -m model1_retrieval.build_index \
-        --model-path artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt \
-        --output-dir data/indexes/retrieval/parallel_r42
-    python -m scripts.evaluate_retrieval \
-        --model-path artifacts/two_stage_runs_parallel/parallel_r42_m1s43_20261030_225836/model1_retrieval/best_model.pt \
-        --index-dir data/indexes/retrieval/parallel_r42 \
-        --output reports/experiments/retrieval_eval_original.json
+## Final held-out test headline
 
-Ranks 5,000 held-out positives against every video in the index. Three rows are compared on
-identical queries: the model, the same model with shuffled users (if it is close to the model,
-the score is mostly popularity, not personalisation) and a popularity-only baseline.
+20,000 test queries; Model 1 recovery 20.73%, author-affinity recovery 21.24%, and hybrid-union recovery 33.50%. The selected `is_like` score had a mean target percentile of 0.42685 (95% CI [0.41863, 0.43512]) over 6,700 covered queries and all-query Hit@100 of 1.28% (95% CI [1.118%, 1.464%]).
 
-## Tests
+The top-level `ranker_reranking` and `same_candidate_random_baseline` objects in the final JSON refer to the evaluator's legacy `current_weights` score. The selected `is_like` formula is recorded separately under `score_variants.variants.hybrid_union.head:is_like`. Do not quote the top-level current-weights Hit@100 as the selected `is_like` Hit@100.
 
-    python -m unittest tests.test_eval_metrics tests.test_ranking_metadata tests.test_retrieval_core
+## Test-set policy
+
+The final test report is frozen. Do not use it to choose new model architectures, score weights, thresholds, or candidate budgets. Any further changes must be tuned on training/validation data and evaluated on a newly defined future holdout or a live controlled experiment.

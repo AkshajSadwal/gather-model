@@ -1,48 +1,34 @@
-# Run both model training jobs on the M4
+# Two-stage training and checkpoint lifecycle
 
-The project uses a 16 GB unified-memory Apple Silicon Mac. **Do not run the
-ranking and retrieval trainers as concurrent MPS processes.** The separate
-smoke tests reported about 5.02 GiB MPS driver allocation for ranking and
-3.03 GiB for retrieval after validation. Those are not peak measurements and
-must not be added as exact forecasts, but they show that concurrent runs could
-put substantial pressure on unified memory. Each process also loads its own
-prepared training arrays and maintains its own model and optimizer state.
+The project currently has trained checkpoints for both stages. The selected pair is documented in the root README and in `docs/MODEL1_RETRIEVAL.md` / `docs/MODEL2_RANKING.md`.
 
-Use the orchestrator below to start both jobs with one command. It runs Model 2
-ranking first, then Model 1 retrieval, releasing the first process before
-starting the second. Both jobs use batch size 4,096 and up to 20 epochs. The
-default early-stopping patience is four, so a run may correctly finish before
-epoch 20 if validation stops improving.
+## Do not retrain just to integrate the API
+
+The current phase is API integration. Re-training is not required to serve the selected offline models. Keep the selected checkpoint paths and feature schema fixed while implementing the service.
+
+## Training entry points
+
+Inspect the exact command-line options in the checked-out source before starting a new run:
 
 ```bash
-python -u -m scripts.run_two_stage_training \\
-  --data-dir data/processed/ranking/1k_v2 \\
-  --output-root artifacts/two_stage_runs \\
-  --epochs 20 \\
-  --batch-size 4096 \\
-  --eval-batch-size 4096 \\
-  --seed 42 \\
-  --eval-seed 314159 \\
-  --early-stopping-patience 4 \\
-  --cpu-threads 4
+python -m model1_retrieval.train_v3 --help
+python -m model2_ranking.train_v2 --help
+python scripts/run_parallel_training.py --help
 ```
 
-Each execution creates a new timestamped run directory containing:
-- `ranking/`: Model 2 best checkpoint, resumable checkpoint, history and metadata.
-- `retrieval/`: Model 1 best checkpoint, resumable checkpoint, history and metadata.
-- `logs/`: separate console logs for each stage.
-- `pipeline_metadata.json`: data fingerprints, settings, stage status and elapsed time.
+Use a new `--output-dir` for every experiment. Preserve `best_model.pt`, run metadata and training history for any experiment under review. Do not resume from `latest_checkpoint.pt` unless resuming that exact run intentionally.
 
-The pipeline skips held-out test evaluation. Use validation metrics for model
-selection, then evaluate the selected checkpoints on the test split once the
-training run has been reviewed. The 20-epoch setting is a maximum, not a
-requirement to continue after early stopping.
+## Checkpoint promotion
 
-The current pipeline runs one seed per model (default 42). For a repeatability
-study, use the dedicated ranking and retrieval repeat runners, which run seeds
-17, 42 and 2026 sequentially. Do not run those runners concurrently either.
+A candidate checkpoint is not promoted because its training loss decreases. Compare the new checkpoint on the same V3 validation data and evaluation protocol. For retrieval, build a matching index and evaluate active-pool retrieval and the hybrid candidate union. For ranking, keep candidate slates fixed and evaluate paired ranking metrics against the current selected score. Only after a decision is frozen may a new holdout test or live experiment be run.
 
-This is still an offline research pipeline, not a production recommendation
-service. The retrieval index is currently exact chunked search; ANN indexing,
-impression logging, exposure-aware evaluation, serving, monitoring and online
-A/B tests remain future work.
+## Current selected pair
+
+- Model 1: `artifacts/retrieval/v3_linear_output_seed42_14ep/best_model.pt`
+- Model 1 index: `data/indexes/retrieval/1k_v3_v3_linear_output_seed42_14ep/`
+- Model 2: `artifacts/two_stage_runs_parallel/parallel_v3catalog_warmstart_r42_20261101_203431/model2_ranking/warmstart_v3_catalog_baseline.pt`
+- Model 2 score: `p_is_like`
+
+## Deferred
+
+Online/continual learning, periodic retraining automation, model registry, drift alerts and rollback automation are not implemented. User events can later be collected continuously, but model weights should be updated through controlled training/evaluation and checkpoint promotion, not modified implicitly during each API request.

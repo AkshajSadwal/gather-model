@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from common.eval_metrics import (
-    auc_binary, average_precision, bootstrap_mean_ci, calibration_summary,
+    action_only_relevance_gains, auc_binary, average_precision, bootstrap_mean_ci, calibration_summary,
     expected_rank_from_scores, grouped_ndcg, make_blocks, paired_diff_ci,
     per_group_auc, recall_hits, relevance_gains, reciprocal_ranks,
 )
@@ -38,6 +38,15 @@ class MetricTests(unittest.TestCase):
         aucs, weights = per_group_auc(y, s, g)
         np.testing.assert_allclose(aucs, [1.0, 0.0])
         np.testing.assert_allclose(weights, [2, 2])
+
+    def test_action_only_gain_excludes_view_duration_targets(self):
+        labels = np.zeros((4, 10), dtype=np.float32)
+        labels[0, TARGETS.index("complete_view")] = 1
+        labels[1, TARGETS.index("long_view")] = 1
+        labels[2, TARGETS.index("short_view")] = 1
+        labels[3, TARGETS.index("is_like")] = 1
+        labels[3, TARGETS.index("is_hate")] = 1
+        np.testing.assert_allclose(action_only_relevance_gains(labels, TARGETS), [0, 0, 0, 0])
 
     def test_relevance_gains(self):
         labels = np.zeros((4, 10), dtype=np.float32)
@@ -154,11 +163,15 @@ class RankingReportTests(unittest.TestCase):
         weights = {"is_like": 0.6, "long_view": 1.0, "short_view": -0.9, "is_hate": -2.0}
         report = evaluate_ranking_predictions(probs, wp, labels, wt, user, video, TARGETS, weights,
                                               popularity_by_video=np.random.default_rng(0).random(60),
-                                              block_size=30, ks=(10,), n_boot=60, seed=3)
+                                              block_size=30, ks=(10,), n_boot=60, seed=3,
+                                              duration_score=np.random.default_rng(9).normal(size=len(user)))
         self.assertGreater(report["mean_auc"], 0.9)
         self.assertGreater(report["mean_gauc"], 0.9)
         self.assertGreater(report["watch_time_log_seconds"]["r2"], 0.8)
         scores = report["ndcg_reranking_logged_impressions"]["scores"]
+        gain_reports = report["ndcg_reranking_logged_impressions"]["gain_definitions"]
+        self.assertIn("action_only_duration_independent", gain_reports)
+        self.assertIn("shortest_video_first", gain_reports["engagement_and_view"])
         self.assertEqual(report["ndcg_reranking_logged_impressions"]["blocks_used"], 30 * 4)
         self.assertGreater(scores[REFERENCE_SCORE]["@10"]["ndcg"], scores["random_order"]["@10"]["ndcg"] + 0.1)
         diff = scores["random_order"]["@10"]["diff_vs_hand_weighted"]

@@ -167,6 +167,8 @@ def main() -> int:
     parser.add_argument("--id-min-count", type=int, default=20,
                         help="Video IDs seen fewer times in training are treated as unknown (0 keeps every ID)")
     parser.add_argument("--id-dropout", type=float, default=0.2, help="Extra random hiding of kept video IDs in training")
+    parser.add_argument("--linear-output", action="store_true",
+                        help="Drop the final ReLU/Dropout of both towers (stored in the checkpoint)")
     parser.add_argument("--learning-rate", type=float, default=0.001)
     parser.add_argument("--min-learning-rate", type=float, default=0.00005)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
@@ -242,7 +244,7 @@ def main() -> int:
 
     device = choose_device()
     print(f"Device: {device}")
-    model = TwoTowerRetrieval(metadata).to(device)
+    model = TwoTowerRetrieval(metadata, linear_output=args.linear_output).to(device)
     model.video_tower.set_id_keep(keep_ids)
     model.video_tower.id_dropout = float(args.id_dropout)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -257,16 +259,22 @@ def main() -> int:
     resume_config = {k: getattr(args, k) for k in (
         "batch_size", "shared_negatives", "pool_hours", "temperature", "logq_strength", "id_min_count", "id_dropout",
         "learning_rate", "min_learning_rate", "weight_decay", "max_positive_rows", "eval_queries", "eval_pool_cap",
-        "eval_seed", "epochs")}
+        "eval_seed", "epochs", "linear_output")}
     if args.resume:
         if not latest_path.exists():
             raise FileNotFoundError(f"Cannot resume: {latest_path} does not exist")
         saved = torch.load(latest_path, map_location="cpu", weights_only=False)
         if int(saved.get("seed", -1)) != args.seed or saved.get("prepared_data_fingerprint") != prepared_fingerprint:
             raise ValueError("Resume needs the same seed and the same prepared data")
-        if saved.get("resume_config") != resume_config:
-            raise ValueError(f"Resume settings differ from the checkpoint: saved={saved.get('resume_config')} current={resume_config}")
+        saved_resume_config = dict(saved.get("resume_config", {}))
+        # Runs made before --linear-output existed are equivalent to False.
+        saved_resume_config.setdefault("linear_output", False)
+        if saved_resume_config != resume_config:
+            raise ValueError(f"Resume settings differ from the checkpoint: saved={saved_resume_config} current={resume_config}")
         model.load_state_dict(saved["model_state_dict"])
+        if (model.user_tower.linear_output != args.linear_output
+                or model.video_tower.linear_output != args.linear_output):
+            raise ValueError("Resume needs the same --linear-output setting as the saved run")
         optimizer.load_state_dict(saved["optimizer_state_dict"])
         scheduler.load_state_dict(saved["scheduler_state_dict"])
         start_epoch, best_epoch = int(saved["epoch"]) + 1, int(saved.get("best_epoch", 0))
@@ -346,6 +354,7 @@ def main() -> int:
                 "model_version": 3, "negative_mode": "pool-softmax", "temperature": args.temperature,
                 "id_min_count": args.id_min_count, "id_dropout": args.id_dropout, "pool_hours": args.pool_hours,
                 "architecture": "two_tower_512_256_128_gated_video_id",
+                "linear_output": args.linear_output,
             }, best_path)
             print(f"Saved best checkpoint: {best_path}")
         else:
@@ -358,7 +367,8 @@ def main() -> int:
             "data_fingerprint": schema_fingerprint, "prepared_data_fingerprint": prepared_fingerprint,
             "seed": args.seed, "epoch": epoch, "best_epoch": best_epoch, "best_score": best_score,
             "no_improve": no_improve, "history": history, "numpy_rng_state": rng.bit_generator.state,
-            "resume_config": resume_config, **capture_device_rng(device),
+            "linear_output": args.linear_output, "resume_config": resume_config,
+            **capture_device_rng(device),
         }, latest_path)
         if args.early_stopping_patience and no_improve >= args.early_stopping_patience:
             print(f"Early stopping: no improvement in pool hit@1% for {no_improve} epochs")
@@ -373,6 +383,8 @@ def main() -> int:
             "best_epoch": history[-1]["epoch"] if history else 0,
             "best_validation_metrics": history[-1]["validation"] if history else {}, "model_version": 3,
             "negative_mode": "pool-softmax", "temperature": args.temperature,
+            "architecture": "two_tower_512_256_128_gated_video_id",
+            "linear_output": args.linear_output,
         }, best_path)
     run_metadata.update({"status": "completed", "completed_at_utc": datetime.now(timezone.utc).isoformat(),
                          "elapsed_seconds": time.perf_counter() - started, "best_epoch": best_epoch,
