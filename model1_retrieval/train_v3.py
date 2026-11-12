@@ -181,7 +181,16 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--init-from", type=Path, default=None,
+        help="Warm-start from a best_model.pt checkpoint; optimizer and scheduler start fresh",
+    )
     args = parser.parse_args()
+
+    if args.resume and args.init_from is not None:
+        parser.error("Use either --resume or --init-from, not both")
+    if args.init_from is not None and not args.init_from.is_file():
+        parser.error(f"--init-from checkpoint does not exist: {args.init_from}")
 
     if min(args.epochs, args.batch_size, args.shared_negatives, args.eval_queries, args.eval_pool_cap) < 1:
         parser.error("epochs, batch size, shared negatives and evaluation sizes must be positive")
@@ -260,6 +269,7 @@ def main() -> int:
         "batch_size", "shared_negatives", "pool_hours", "temperature", "logq_strength", "id_min_count", "id_dropout",
         "learning_rate", "min_learning_rate", "weight_decay", "max_positive_rows", "eval_queries", "eval_pool_cap",
         "eval_seed", "epochs", "linear_output")}
+    warm_start_info = None
     if args.resume:
         if not latest_path.exists():
             raise FileNotFoundError(f"Cannot resume: {latest_path} does not exist")
@@ -283,6 +293,42 @@ def main() -> int:
         rng.bit_generator.state = saved["numpy_rng_state"]
         restore_device_rng(saved, device)
         print(f"Resumed after completed epoch {start_epoch - 1}")
+    elif args.init_from is not None:
+        source = torch.load(args.init_from, map_location="cpu", weights_only=False)
+        if source.get("prepared_data_fingerprint") != prepared_fingerprint:
+            raise ValueError("The --init-from checkpoint was trained on different prepared data")
+        if source.get("data_fingerprint") != schema_fingerprint:
+            raise ValueError("The --init-from checkpoint data schema does not match")
+        if source.get("categorical_sizes") != metadata["categorical_sizes"]:
+            raise ValueError("The --init-from checkpoint categorical sizes do not match")
+        if bool(source.get("linear_output", False)) != args.linear_output:
+            raise ValueError("The --init-from checkpoint linear-output setting does not match")
+        model.load_state_dict(source["model_state_dict"])
+        source_metrics = source.get("best_validation_metrics", {})
+        baseline_score = float(source_metrics.get("pool_hit_at_1pct", float("nan")))
+        if not np.isfinite(baseline_score):
+            raise ValueError("The --init-from checkpoint has no finite pool_hit_at_1pct baseline")
+        source_best_epoch = int(source.get("best_epoch", 0))
+        best_score, best_epoch, no_improve = baseline_score, 0, 0
+        baseline_payload = dict(source)
+        baseline_payload.update({
+            "best_epoch": 0,
+            "source_best_epoch": source_best_epoch,
+            "warm_start_source": str(args.init_from.resolve()),
+            "warm_start_baseline_score": baseline_score,
+        })
+        atomic_save(baseline_payload, best_path)
+        warm_start_info = {
+            "source_checkpoint": str(args.init_from.resolve()),
+            "source_best_epoch": source_best_epoch,
+            "baseline_pool_hit_at_1pct": baseline_score,
+            "optimizer_state": "reset; fresh AdamW and cosine scheduler",
+            "epoch_numbering": "fine-tuning run starts at epoch 1; source epoch recorded separately",
+        }
+        print(
+            f"Warm-started from Model 1 best checkpoint (source epoch {source_best_epoch}); "
+            f"baseline pool hit@1%={baseline_score:.4f}. Optimizer and scheduler reset."
+        )
 
     run_metadata = {
         "status": "running", "started_at_utc": started_at, "seed": args.seed, "dataset": metadata.get("dataset"),
@@ -293,7 +339,18 @@ def main() -> int:
         "validation_protocol": validator.description + "; selection metric pool_hit_at_1pct",
         "runtime": {"python": platform.python_version(), "torch": torch.__version__, "numpy": np.__version__, "device": str(device)},
     }
-    write_json(run_metadata, out / "run_metadata.json")
+    if warm_start_info is not None:
+        run_metadata["warm_start"] = warm_start_info
+    def json_safe(value):
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {key: json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [json_safe(item) for item in value]
+        return value
+
+    write_json(json_safe(run_metadata), out / "run_metadata.json")
 
     for epoch in range(start_epoch, args.epochs + 1):
         epoch_start = time.perf_counter()
@@ -389,7 +446,7 @@ def main() -> int:
     run_metadata.update({"status": "completed", "completed_at_utc": datetime.now(timezone.utc).isoformat(),
                          "elapsed_seconds": time.perf_counter() - started, "best_epoch": best_epoch,
                          "best_pool_hit_at_1pct": best_score})
-    write_json(run_metadata, out / "run_metadata.json")
+    write_json(json_safe(run_metadata), out / "run_metadata.json")
     print(f"Best epoch {best_epoch} (pool hit@1% = {best_score:.4f}). Best model: {best_path}")
     return 0
 

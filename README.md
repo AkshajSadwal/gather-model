@@ -199,3 +199,7 @@ data/                  Raw and prepared KuaiRand data plus retrieval index
 ## Current next step
 
 Integrate the frozen artifacts into the existing application API. The integration should load the models once, reuse the video index, build feature tensors with the exact V3 mappings, merge Model 1 and author-affinity candidates, score with `p_is_like`, and apply feed-serving constraints. The model-training phase is paused; online adaptation and scheduled retraining are intentionally deferred.
+
+## Gather two-stage integration
+
+This repository now contains the private serving contract in `serving/`, a Gather schema status manifest in `configs/gather_recommendation_schema_v1.json`, and a conservative impression-based preparation/readiness script in `scripts/prepare_gather_dataset.py`. Install only the separate API dependencies from `requirements-serving.txt` when you intend to run the service. It currently stays `COLD_START`; no Gather model or index is ready, and KuaiRand references must not serve Gather IDs. See `docs/GATHER_SERVING.md`, `docs/GATHER_TRAINING_READINESS.md`, and `docs/GATHER_MODEL_COMPATIBILITY.md`.

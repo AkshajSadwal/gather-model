@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "gather-reco-v1",
+  "status": "NOT_READY",
+  "fingerprint": "cd94509ad053c55cb973f5dea69546900e3c6d35fc15e90d7308fdbfb46ab82a",
+  "fingerprintPolicy": "SHA-256 over canonical JSON with fingerprint field omitted",
+  "categoricalFeatures": [
+    "user_id", "reel_id", "tab",
+    "user:account_age_bucket", "user:following_count_bucket", "user:follower_count_bucket", "user:friend_count_bucket",
+    "user:recent_watch_bucket", "user:completion_bucket", "user:like_rate_bucket", "user:save_rate_bucket", "user:share_rate_bucket", "user:negative_feedback_bucket", "user:recent_creator_engagement_bucket",
+    "user:topic_preference_1", "user:topic_preference_2", "user:topic_preference_3", "user:topic_preference_4", "user:topic_preference_5", "user:topic_preference_6", "user:topic_preference_7", "user:topic_preference_8", "user:topic_preference_9", "user:topic_preference_10",
+    "user:language_preference_1", "user:language_preference_2", "user:language_preference_3", "user:profile_visibility", "user:personalization_state",
+    "video:creator_id", "video:topic", "video:language", "video:duration_bucket", "video:hashtag_group", "video:creator_age_bucket", "video:creator_visibility"
+  ],
+  "numericFeatures": [
+    "log1p_reel_duration_seconds", "hour_sin_utc", "hour_cos_utc", "log1p_user_following_count", "log1p_user_follower_count", "log1p_user_friend_count", "log1p_user_account_age_days", "log1p_reel_age_hours", "log1p_creator_follower_count", "log1p_reel_media_bytes"
+  ],
+  "retrievalSplit": {
+    "userCategoricalColumns": [0, 2, "3..28"],
+    "videoCategoricalColumns": [1, "29..35"],
+    "userNumericColumns": [1, 2, 3, 4, 5, 6],
+    "videoNumericColumns": [0, 8, 9],
+    "embeddingDimension": 128,
+    "normalization": "L2"
+  },
+  "ranking": {
+    "architecture": "ReelsRankerV2",
+    "hiddenDimensions": [512, 256, 128],
+    "categoricalEmbeddingDimension": 32,
+    "primaryHead": "is_like",
+    "binaryTargets": ["is_click", "is_like", "is_follow", "is_comment", "is_forward", "is_hate", "long_view", "is_profile_enter", "complete_view", "short_view"],
+    "watchTimeTarget": "log1p(playback_seconds)",
+    "watchTimeInverse": "expm1(max(prediction, 0))"
+  },
+  "idPolicy": {"userId": "stable Gather-only CUID vocabulary; OOV=0", "reelId": "stable Gather-only CUID vocabulary; OOV=0", "creatorId": "stable Gather-only account vocabulary; OOV=0"},
+  "categoryPolicy": {"fit": "training split only", "missing": "__MISSING__", "unknown": 0},
+  "numericPolicy": {"transform": "listed log1p and bounded sine/cosine inputs, then train-split z-score", "invalidOrZeroStd": 1},
+  "labelPolicy": {"is_click": "unavailable; no current semantically valid click event", "is_like": "LIKE state at owned impression; UNLIKE corrects state", "is_follow": "creator follow state at owned impression", "is_comment": "COMMENT action", "is_forward": "SHARE action", "is_hate": "explicit NOT_INTERESTED only", "long_view": "measured watch/duration >= 0.75", "is_profile_enter": "PROFILE_OPEN action", "complete_view": "measured watch/duration >= 0.9 for a known positive duration", "short_view": "viewable exposure and measured watch/duration < 0.25; weak negative"},
+  "reason": "Gather feature construction, point-in-time coverage, first-party thresholds, model training, evaluation, and index validation are not complete. This schema is Gather-specific and has no approved transfer from KuaiRand."
+}

@@ -1,0 +1,19 @@
+{
+  "best_epoch": 2,
+  "test_loss": 0.4857611803074324,
+  "test_metrics": {
+    "mean_auc": 0.8541769802496205,
+    "is_click": 0.7854851453750908,
+    "is_like": 0.934367311729162,
+    "is_follow": 0.8474405294479571,
+    "is_comment": 0.9010658016003287,
+    "is_forward": 0.8646287205234304,
+    "is_hate": 0.8634507901838451,
+    "long_view": 0.7988007323670173,
+    "is_profile_enter": 0.8523898983021583,
+    "complete_view": 0.853268802961137,
+    "short_view": 0.8408720700060776
+  },
+  "checkpoint": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/v3_final_parallel_m1_15ep_m2_20ep_20261102_043050/model2_ranking/best_model.pt",
+  "device": "mps"
+}

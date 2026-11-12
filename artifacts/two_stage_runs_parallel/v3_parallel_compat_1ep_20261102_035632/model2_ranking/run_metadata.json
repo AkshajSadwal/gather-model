@@ -1,0 +1,84 @@
+{
+  "status": "completed",
+  "run_name": "v3_parallel_compat_1ep_20261102_035632_model2",
+  "started_at_utc": "2026-11-01T22:26:33.939795+00:00",
+  "seed": 42,
+  "config": {
+    "data_dir": "data/processed/ranking/1k_v3_catalog",
+    "output_dir": "artifacts/two_stage_runs_parallel/v3_parallel_compat_1ep_20261102_035632/model2_ranking",
+    "epochs_max": 1,
+    "batch_size": 4096,
+    "eval_batch_size": 4096,
+    "embedding_dim_requested": 32,
+    "learning_rate": 5e-05,
+    "max_train_rows": 0,
+    "cpu_threads": 4,
+    "cooldown_every_batches": 0,
+    "cooldown_seconds": 2.0,
+    "early_stopping_patience": 0,
+    "min_delta": 0.0,
+    "skip_test_eval": true,
+    "init_from": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_v3catalog_warmstart_r42_20261101_203431/model2_ranking/warmstart_v3_catalog_baseline.pt"
+  },
+  "dataset": "1k",
+  "schema_fingerprint": "7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7",
+  "prepared_data_fingerprint": "a9e0107ff2818fba39e378746664cf1a1e70402af11ca0e62d85097c2da1195f",
+  "rows": {
+    "train": 10381632,
+    "validation": 665706,
+    "test": 665707
+  },
+  "test_split_loaded": false,
+  "runtime": {
+    "python": "3.12.16",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "pytorch": "2.15.0",
+    "numpy": "2.5.4",
+    "device": "mps"
+  },
+  "model": {
+    "architecture": "512-256-128",
+    "embedding_dim": 32,
+    "categorical_fields": 36,
+    "numeric_fields": 10,
+    "binary_targets": [
+      "is_click",
+      "is_like",
+      "is_follow",
+      "is_comment",
+      "is_forward",
+      "is_hate",
+      "long_view",
+      "is_profile_enter",
+      "complete_view",
+      "short_view"
+    ],
+    "watch_time_head": true
+  },
+  "warm_start": {
+    "source_checkpoint": "/Users/akshaj/Projects/reels-recommender-m4/artifacts/two_stage_runs_parallel/parallel_v3catalog_warmstart_r42_20261101_203431/model2_ranking/warmstart_v3_catalog_baseline.pt",
+    "source_best_epoch": 1,
+    "baseline_validation_auc": 0.8624155860402466,
+    "optimizer_state": "reset; fresh AdamW state for fine-tuning"
+  },
+  "completed_at_utc": "2026-11-01T22:34:25.986628+00:00",
+  "elapsed_seconds": 472.04598645799706,
+  "epochs_recorded": 1,
+  "best_epoch": 1,
+  "best_validation_score": 0.8624579407295807,
+  "best_validation_loss": 0.47882694022584066,
+  "best_validation_metrics": {
+    "mean_auc": 0.8624579407295807,
+    "is_click": 0.7826283231884321,
+    "is_like": 0.9364626259675113,
+    "is_follow": 0.858213864354477,
+    "is_comment": 0.9065625147217506,
+    "is_forward": 0.8789862905371782,
+    "is_hate": 0.9146513075200133,
+    "long_view": 0.8001339793463056,
+    "is_profile_enter": 0.8547950865792099,
+    "complete_view": 0.8527652232095604,
+    "short_view": 0.839380191871367
+  },
+  "test_evaluation": "skipped"
+}

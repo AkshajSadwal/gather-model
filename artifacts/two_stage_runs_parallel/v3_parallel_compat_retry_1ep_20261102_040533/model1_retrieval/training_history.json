@@ -1,0 +1,17 @@
+[
+  {
+    "epoch": 1,
+    "train_loss": 5.852829285762595,
+    "epoch_seconds": 1206.2274184169946,
+    "learning_rate": 5e-05,
+    "validation": {
+      "pool_hit_at_1pct": 0.1458,
+      "pool_hit_at_5pct": 0.3826,
+      "pool_mean_percentile": 0.15567615772047055,
+      "pool_recall_at_100": 0.049,
+      "pool_recall_at_1000": 0.2278,
+      "pool_median_size": 52094.0,
+      "queries": 5000
+    }
+  }
+]
