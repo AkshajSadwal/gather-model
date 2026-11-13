@@ -1,37 +1,58 @@
-# Gather private inference service
+# Gather private zero-shot inference service
 
-The persistent FastAPI contract is implemented under `serving/`. It intentionally reports `COLD_START` until Gather-trained artifacts and a real inference runtime pass schema, checkpoint, vocabulary, catalog and index fingerprint checks. It never attempts to load the selected KuaiRand references.
+The serving app uses the frozen KuaiRand-1K checkpoints. Its mode is kuairand_zero_shot_v1; it is not Gather-trained and recommendation quality has not been validated on Gather.
 
-PowerShell local setup (from `A:\reels-recommender-m4`):
+## Start locally
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-serving.txt
-$env:REELS_RECOMMENDER_TOKEN = '<set a local random service token>'
-uvicorn serving.app:app --host localhost --port 8100 --workers 1
-```
+From PowerShell in A:\reels-recommender-m4:
 
-Configure Gather with `REELS_RECOMMENDER_URL=http://localhost:8100` and the same token. Restrict production service traffic to the private backend network, terminate TLS at the private ingress, and rotate service credentials through deployment secret management. Never expose the service publicly or put a token in source control. `/health/live` is process liveness; `/health/ready` distinguishes `COLD_START` from model readiness. Current implementation always returns `COLD_START`; model inference is intentionally blocked pending compatible Gather-trained models and an available PyTorch runtime.
+    $env:REELS_RECOMMENDER_ROOT = 'A:\reels-recommender-m4'
+    $env:REELS_RECOMMENDER_TOKEN = '<same local random token configured in Gather backend>'
+    $env:REELS_RECOMMENDER_DEVICE = 'auto'
+    uvicorn serving.app:app --host 127.0.0.1 --port 8100 --workers 1
 
-The service reads `REELS_RECOMMENDER_ROOT` (default: the ML repository root), `GATHER_MODEL_MANIFEST`, `GATHER_RETRIEVAL_CHECKPOINT`, `GATHER_RANKING_CHECKPOINT`, and `GATHER_RETRIEVAL_INDEX` as environment-configurable artifact paths. Example PowerShell path setup (the Gather-specific files do not yet exist, so these are placeholders only):
+REELS_RECOMMENDER_DEVICE accepts auto, cuda, or cpu; auto selects CUDA when available and otherwise CPU. REELS_RECOMMENDER_CPU_THREADS defaults to 2. Optional artifact overrides are REELS_RECOMMENDER_DATA_DIR, REELS_RECOMMENDER_RETRIEVAL_CHECKPOINT, REELS_RECOMMENDER_RANKING_CHECKPOINT, REELS_RECOMMENDER_REFERENCE_INDEX, and REELS_RECOMMENDER_ADAPTER_VOCAB. Overrides still must match the pinned hashes/fingerprints.
 
-```powershell
-$env:REELS_RECOMMENDER_ROOT = 'A:\reels-recommender-m4'
-$env:GATHER_MODEL_MANIFEST = 'A:\reels-recommender-m4\artifacts\gather\manifest.json'
-$env:GATHER_RETRIEVAL_CHECKPOINT = 'A:\reels-recommender-m4\artifacts\gather\retrieval.pt'
-$env:GATHER_RANKING_CHECKPOINT = 'A:\reels-recommender-m4\artifacts\gather\ranking.pt'
-$env:GATHER_RETRIEVAL_INDEX = 'A:\reels-recommender-m4\artifacts\gather\index'
-```
+In the Gather backend environment set:
 
-The current service does not load these artifact paths yet; it stays `COLD_START` until the separate validated inference runtime is implemented.
+    REELS_RECOMMENDER_ENABLED=true
+    REELS_RECOMMENDER_URL=http://127.0.0.1:8100
+    REELS_RECOMMENDER_TOKEN=<same local random token>
+    REELS_RECOMMENDER_SCHEMA_FINGERPRINT=cd94509ad053c55cb973f5dea69546900e3c6d35fc15e90d7308fdbfb46ab82a
+    REELS_RECOMMENDER_TIMEOUT_MS=1200
 
-## Persistent two-stage inference
+Bind the service to loopback/private backend networking. Never expose it publicly or commit the token.
 
-`serving/app.py` loads the Gather `TwoTowerRetrieval`, `ReelsRankerV2`, versioned categorical mappings and memory-mapped full-catalogue index once at startup. It validates the canonical feature fingerprint, prepared-data schema fingerprint, retrieval checkpoint SHA-256, catalogue-map SHA-256, ranking target/vocabulary metadata, and index dimensions before becoming `READY`. Device selection uses CUDA when available and CPU otherwise. `is_like` sigmoid probability is the ranking score; predicted watch time is returned as `expm1(clamp(log_seconds, 0, log1p(3600)))`.
+## API and readiness
 
-The service retrieves against all indexed reels and intersects those IDs with the privacy-eligible features supplied by Gather before Model 2 ranking. This allows the backend to recheck current block, mute, private-account, archive and moderation rules. Candidates carry a real Gather reel ID and its opaque model key; the service returns the real ID only after matching a currently eligible candidate. The backend verifies every result against the eligible candidate set. Missing artifacts or any compatibility mismatch return readiness `COLD_START`; the API does not substitute KuaiRand recommendations.
+- GET /health/live reports process liveness.
+- GET /health/ready reports runtime readiness, mode, training domain, source/model fingerprints, selected device, checkpoint load duration, and recommendationQuality: NOT_VALIDATED_ON_GATHER.
+- GET /v1/model-info requires the shared Bearer token and reports selected checkpoint hashes and the feature mapping report.
+- POST /v1/recommendations requires the shared Bearer token and the canonical Gather source schema. It returns real Gather Reel IDs only from the supplied candidate set.
 
-Optional paths: `GATHER_DATA_DIR` (defaults to `data/processed/gather_v1`) and `GATHER_ARTIFACT_DIR` (defaults to `artifacts/gather`). Optional `GATHER_ACTIVE_MODEL_MANIFEST` selects the promoted pointer (defaults to `artifacts/gather/active_gather_model.json`). `GATHER_MODEL_MANIFEST`, `GATHER_RETRIEVAL_CHECKPOINT`, `GATHER_RANKING_CHECKPOINT`, and `GATHER_RETRIEVAL_INDEX` override individual paths. The serving dependency file is `requirements-serving.txt`; installing it is an operator action. The repository venv currently lacks FastAPI, so service startup was not run here.
+Missing artifacts, a hash/schema mismatch, or unavailable runtime leaves readiness COLD_START; the Node backend then uses cold_start_v1. The backend also verifies returned IDs against its already privacy-filtered candidate set.
 
-Train a ranker only after `prepare_gather_dataset.py` reports READY and first-party minimums are met. Evaluate held-out data with `scripts/evaluate_gather_v1.py`; promotion is a separate explicit operation through `scripts/promote_gather_model.py --activate --approval PROMOTE` with operator-selected minimum `is_like` AUC and Recall@100 thresholds. No training, evaluation against real Gather data, or promotion was run during this change.
+## Frozen artifacts and compatibility
+
+The selected files are loaded once, in evaluation mode with gradients disabled:
+
+- Model 1: artifacts/retrieval/v3_linear_output_seed42_14ep/best_model.pt
+- Model 2: artifacts/two_stage_runs_parallel/parallel_v3catalog_warmstart_r42_20261101_203431/model2_ranking/warmstart_v3_catalog_baseline.pt
+- Prepared schema: data/processed/ranking/1k_v3_catalog/
+- Reference Model 1 index: data/indexes/retrieval/1k_v3_v3_linear_output_seed42_14ep/
+
+Model 1 SHA-256: 6f3114de877b4c2a3770b750704bb0cae6e0a7e2441b6ac7e17ee1162946888e.
+
+Model 2 SHA-256: a4c91097fd409145253e9f43454b80852018286e9da5c26b870a75872d47ba8e.
+
+KuaiRand schema fingerprint: 7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7.
+
+Prepared-data fingerprint: a9e0107ff2818fba39e378746664cf1a1e70402af11ca0e62d85097c2da1195f.
+
+The adapter reads the unchanged original 36 categorical and 10 numeric column orders and normalization. It maps verified following/follower/friend/account-age ranges and exact normalized topic values; unknown categories and every Gather user/Reel/creator ID use OOV index 0. Missing numeric values use medians reconstructed from the original prepared training split. Width and height use those medians because the Gather Reel feature snapshot does not provide dimensions. The small mapping asset is serving/artifacts/kuairand_v1_vocab.json, generated by python -m serving.gather_kuairand_adapter; its pinned fingerprint is 1fc0fea6c5e75d6948183afb9469dc34bfe62d6c67bd8a1e41ad05dbdcff0bf1. The builder checks category sizes and encoded rows in id_maps.npz.
+
+The selected Model 1 index metadata is validated against the checkpoint SHA-256, data fingerprint, and catalogue-map SHA-256. Its KuaiRand vectors and IDs are never loaded or queried by Gather inference. Model 1 encodes the bounded eligible Gather candidates directly with its original user/video towers. Model 2 ranks those candidates by sigmoid(is_like_logit); its score is not a calibrated probability of Gather engagement. Predicted watch time is expm1(clamp(log_seconds, 0, log1p(3600))).
+
+Local Windows runs (PyTorch 2.15.0+cu134, RTX 3050 available) measured 5.31-8.76 s startup and 20.76-77.47 ms warm CUDA inference for 250 candidates; CUDA peak allocation was 1,072 MiB. CPU fallback measured 3.23-3.58 s startup and 51.78-60.95 ms for 250 candidates, with 2,704 MiB peak process working set. These runs used comparable 250-candidate fixtures on the same machine but varied with runtime/GPU state; they are not Oracle ARM64 benchmarks.
+
+Do not retrain, fine-tune, rewrite, or overwrite the selected checkpoints, prepared KuaiRand data, or original index. Gather model training, offline evaluation, and promotion are separate future work after genuine first-party data meets readiness thresholds. A successful API/test run establishes pipeline behavior only, not recommendation quality.

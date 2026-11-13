@@ -6,7 +6,7 @@ An offline PyTorch prototype for personalized short-video recommendations using 
 2. **Static author affinity:** a user's prior positive interactions with creators provide complementary candidates, especially for videos whose own ID embedding is unavailable.
 3. **Model 2 — ranking:** a multi-task ranker scores the union. The selected offline scoring formula for the current top-100 objective is the `is_like` sigmoid output.
 
-This repository is **ready for API integration, not production deployment**. It does not yet contain a live feed API, real-time event pipeline, feature store, online training loop, ANN serving layer, policy/ranking filters, monitoring, or online experiment framework.
+This repository includes a private FastAPI zero-shot inference endpoint for a constrained Gather candidate pool, but it is not a production feed platform. It does not contain the app's live feed API, a feature store, online training, monitoring, or an online experiment framework.
 
 ## Current selected artifacts
 
@@ -202,4 +202,4 @@ Integrate the frozen artifacts into the existing application API. The integratio
 
 ## Gather two-stage integration
 
-This repository now contains the private serving contract in `serving/`, a Gather schema status manifest in `configs/gather_recommendation_schema_v1.json`, and a conservative impression-based preparation/readiness script in `scripts/prepare_gather_dataset.py`. Install only the separate API dependencies from `requirements-serving.txt` when you intend to run the service. It currently stays `COLD_START`; no Gather model or index is ready, and KuaiRand references must not serve Gather IDs. See `docs/GATHER_SERVING.md`, `docs/GATHER_TRAINING_READINESS.md`, and `docs/GATHER_MODEL_COMPATIBILITY.md`.
+The private service in serving/ now loads the selected frozen KuaiRand checkpoints and applies kuairand_zero_shot_v1 to Gather's already eligible candidate pool. Gather IDs remain OOV, the original KuaiRand item index is not queried, and Gather recommendation quality is not yet validated. Gather-specific training remains postponed until genuine first-party data meets readiness thresholds. See docs/GATHER_SERVING.md, docs/GATHER_TRAINING_READINESS.md, and docs/GATHER_MODEL_COMPATIBILITY.md.

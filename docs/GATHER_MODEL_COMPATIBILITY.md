@@ -7,7 +7,11 @@ The index builder writes item vectors batchwise into a float16 NumPy memory-mapp
 
 Model 2's binary loss uses batchwise positive weights `clamp(negative_count / max(positive_count, 1), 1, 20)` and adds `0.20 * SmoothL1` for watch target. Its recommendation script applies sigmoid, and converts the watch head using `expm1(clamp(raw, min=0))`. The KuaiRand script's multi-head score weights are not carried into Gather; Gather's initial primary head is `is_like` only.
 
-## Per-weight transfer decision
+## Frozen zero-shot serving decision
+
+The current Gather integration does not copy or fine-tune any KuaiRand tensor. It loads the selected original Model 1 and Model 2 checkpoints unchanged with their original KuaiRand schema, then explicitly adapts Gather feature snapshots at inference time. This is frozen zero-shot inference, not transfer learning and not a Gather-trained model. All Gather user, Reel, and creator IDs use OOV index 0. Model 1 scores the eligible Gather candidate pool directly; the KuaiRand vector index remains untouched and is never queried for Gather results. Model 2's primary score is sigmoid(is_like_logit).
+
+## Per-weight transfer decision for future Gather-trained models
 
 No tensor in the selected checkpoints is approved for direct reuse in a Gather model. Specifically:
 
@@ -21,8 +25,8 @@ No tensor in the selected checkpoints is approved for direct reuse in a Gather m
 | Model 2 first dense layer `[512,257]` | Input includes KuaiRand embedding coordinates and KuaiRand standardized numeric distributions | Reinitialize |
 | Model 2 shared hidden layers `[512,512]`, `[256,512]`, `[128,256]` | Shape-compatible only; prior latent space and behavioral sampling differ | No direct transfer absent a validated alignment experiment |
 | Model 2 action/watch heads | Gather label availability/definitions differ (`complete_view` 90% and `short_view` 25% versus KuaiRand full-duration and `min(3s,duration)`); watch units transform align but latent and target distributions do not | Reinitialize all heads |
-| Retrieval item index | Contains 4,371,868 KuaiRand video IDs and is tied to the checkpoint/catalog hashes | Never expose to Gather; rebuild from Gather reels and a Gather checkpoint |
+| Retrieval item index | Contains KuaiRand video IDs and is tied to the checkpoint/catalog hashes | Keep untouched; never query it for Gather. Encode the supplied eligible Gather candidates directly |
 
 Even the shared `is_like` name and `log1p(seconds)` watch target do not prove weight compatibility. No arbitrary tensor copying or fingerprint substitution is allowed.
 
-Current serving note: P1 verified the reference checkpoints and CUDA environment, but their KuaiRand categorical/ID vocabularies and semantic targets remain incompatible. The new Gather adapter emits 36 ordered categorical and 10 numeric features with train-only vocabularies, train-only numeric statistics, OOV index 0, label masks, and the canonical `cd94509ad053c55cb973f5dea69546900e3c6d35fc15e90d7308fdbfb46ab82a` schema fingerprint. The serving runtime accepts only Gather-specific checkpoint/index fingerprints; it remains COLD_START until these are built from sufficient first-party Gather data. No individual KuaiRand tensor is transferred.
+Serving note (2026-11-14): the frozen kuairand_zero_shot_v1 runtime is ready with adapter fingerprint 1fc0fea6c5e75d6948183afb9469dc34bfe62d6c67bd8a1e41ad05dbdcff0bf1 and selected checkpoints SHA-256 6f3114de877b4c2a3770b750704bb0cae6e0a7e2441b6ac7e17ee1162946888e and a4c91097fd409145253e9f43454b80852018286e9da5c26b870a75872d47ba8e. It validates the original KuaiRand schema (7bbaadb7410036832014bdf7f3a225671f84bf60c8226c2f98ae78ca5ebb67e7) and prepared-data fingerprint (a9e0107ff2818fba39e378746664cf1a1e70402af11ca0e62d85097c2da1195f). Its adapter preserves the exact 36/10 feature orders, uses reconstructed training-only range/tag maps checked against id_maps.npz, normalizes with the original KuaiRand means/stds, and keeps IDs/unsupported categories OOV. Service tests and local CUDA/CPU inference passed; recommendation quality remains unvalidated on Gather.
